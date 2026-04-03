@@ -3,6 +3,7 @@
 package main
 
 import (
+	"strings"
 	"syscall/js"
 
 	"github.com/gdamore/tcell/v2"
@@ -93,6 +94,9 @@ func handleKey(this js.Value, args []js.Value) interface{} {
 	obj.Set("cursorX", frame.CursorX)
 	obj.Set("cursorY", frame.CursorY)
 	obj.Set("action", action)
+	if strings.HasPrefix(action, "select:") {
+		obj.Set("url", session.SelectedURL())
+	}
 	return obj
 }
 

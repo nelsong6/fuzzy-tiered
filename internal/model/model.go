@@ -24,4 +24,5 @@ type Item struct {
 	ParentIdx     int           // index of parent in the flat items slice (-1 for root)
 	HasChildren   bool          // true if this item has children
 	Path          string        // breadcrumb path (e.g. "git › gitprune") for nested items
+	URL           string        // optional link URL (for web showcase leaf selection)
 }

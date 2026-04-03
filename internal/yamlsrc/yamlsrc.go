@@ -14,6 +14,7 @@ import (
 type Entry struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description,omitempty"`
+	URL         string      `yaml:"url,omitempty"`
 	Children    interface{} `yaml:"children,omitempty"` // []Entry or string (file path)
 }
 
@@ -82,6 +83,7 @@ func flatten(entries []Entry, baseDir string, depth int, parentIdx int, parentPa
 			ParentIdx:   parentIdx,
 			HasChildren: hasChildren,
 			Path:        path,
+			URL:         e.URL,
 		})
 
 		// Register this item as a child of its parent

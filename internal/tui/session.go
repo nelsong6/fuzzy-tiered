@@ -61,3 +61,12 @@ func (sess *Session) HandleKey(key tcell.Key, ch rune) (SessionFrame, string) {
 	frame := sess.Render()
 	return frame, action
 }
+
+// SelectedURL returns the URL of the currently selected item, if any.
+func (sess *Session) SelectedURL() string {
+	s := sess.state
+	if s.index >= 0 && s.index < len(s.filtered) {
+		return s.filtered[s.index].URL
+	}
+	return ""
+}
