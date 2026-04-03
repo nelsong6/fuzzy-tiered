@@ -54,14 +54,19 @@ func initSession(this js.Value, args []js.Value) interface{} {
 		return jsError("no items loaded — call loadYAML first")
 	}
 
+	// Inject header row (matches CLI --header behavior)
+	headerItem := model.Item{Fields: []string{"Name", "Description"}, Depth: -1}
+	items := append([]model.Item{headerItem}, currentItems...)
+
 	cfg := tui.Config{
 		Layout:       "reverse",
 		Border:       true,
 		Tiered:       true,
 		DepthPenalty: 5,
+		HeaderLines:  1,
 	}
 
-	session = tui.NewSession(currentItems, cfg, cols, rows)
+	session = tui.NewSession(items, cfg, cols, rows)
 	frame := session.Render()
 	return frameToJS(frame)
 }
