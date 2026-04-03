@@ -2,15 +2,15 @@
 
 ## Overview
 
-fzh (fuzzy hierarchical) is an fzf-compatible fuzzy finder with two additions: depth-aware tiered scoring and first-class column support. Written in Go, uses tcell for the TUI.
+fzt (fuzzy tiered) is an fzf-compatible fuzzy finder with two additions: depth-aware tiered scoring and first-class column support. Written in Go, uses tcell for the TUI.
 
 Repo: `D:\repos\fuzzy-tiered`
-Binary: `fzh.exe` (built to repo root, on PATH via Profile 1's `profile.ps1`)
+Binary: `fzt.exe` (built to repo root, on PATH via Profile 1's `profile.ps1`)
 
 ## Building
 
 ```
-go build -o fzh.exe .
+go build -o fzt.exe .
 ```
 
 ## Scoring Architecture
@@ -39,13 +39,13 @@ PowerShell 5.1 mangles Private Use Area Unicode codepoints (nerd font icons) whe
 
 ```powershell
 # BAD — icons become ???
-lsd --icon always --color always | fzh --ansi
+lsd --icon always --color always | fzt --ansi
 
 # GOOD — icons preserved
-cmd /c "lsd --icon always --color always | fzh --ansi"
+cmd /c "lsd --icon always --color always | fzt --ansi"
 ```
 
-This applies to any rich input (nerd font icons, ANSI colors from tools like lsd). The `--ansi` flag tells fzh to parse and preserve ANSI color codes, and `--icon always --color always` forces lsd to emit them when piped.
+This applies to any rich input (nerd font icons, ANSI colors from tools like lsd). The `--ansi` flag tells fzt to parse and preserve ANSI color codes, and `--icon always --color always` forces lsd to emit them when piped.
 
 ## Testing
 
@@ -72,12 +72,12 @@ New: `--tiered`, `--depth-penalty`, `--search-cols`, `--ansi`
 - **Descriptions always searchable**: `--nth` no longer blocks description matching. `shouldSearch()` gates the name tier; descriptions (field 1+) are always eligible at the desc tier. Fixes the `at` menu where `--nth=1` was silently preventing description search.
 - **Auto-highlight top result while typing**: Top match always selected (blue highlight) as user types. Enter immediately confirms. Prompt shows query text with cursor even while an item is highlighted.
 - **Description text color**: Changed from `tcell.ColorGray` to `tcell.StyleDefault` (normal terminal white).
-- **WASM build target**: Added `cmd/wasm/main.go` — compiles fzh's internal scorer, YAML loader, and filtering logic to WebAssembly (`GOOS=js GOARCH=wasm`). Exposes `fzh.loadYAML()`, `fzh.filter()`, and `fzh.getChildren()` to JavaScript via `syscall/js`. Enables running the actual Go scoring engine in the browser for the fuzzy-tiers-showcase frontend.
+- **WASM build target**: Added `cmd/wasm/main.go` — compiles fzt's internal scorer, YAML loader, and filtering logic to WebAssembly (`GOOS=js GOARCH=wasm`). Exposes `fzt.loadYAML()`, `fzt.filter()`, and `fzt.getChildren()` to JavaScript via `syscall/js`. Enables running the actual Go scoring engine in the browser for the fuzzy-tiers-showcase frontend.
 - **`LoadFromString`**: Added to `internal/yamlsrc/yamlsrc.go` — parses YAML content from a string without filesystem I/O. File-reference children are not supported (errors). Used by the WASM bridge since browsers have no filesystem.
 - **ANSI serialization** (`internal/tui/ansi.go`): `MemScreen.ToANSI()` serializes the headless grid as ANSI-escaped text. Maps tcell palette colors to standard ANSI SGR codes (30-37/90-97 for 16-color, 38;5;N for 256, 38;2;R;G;B for true color). Emits a full SGR reset+set on each style change, reset at end of each line. Designed for web terminal rendering — the JS side parses these codes and maps palette indices to a Tokyo Night theme.
 - **Headless TUI Session** (`internal/tui/session.go`): `Session` type wraps state + MemScreen + Config for WASM/headless use. Methods: `NewSession(items, cfg, w, h)`, `Render() SessionFrame`, `HandleKey(key, ch) (SessionFrame, action)`, `Resize(w, h) SessionFrame`. `SessionFrame` returns ANSI string + cursor position.
 - **Extracted key handling** (`internal/tui/tui.go`): Moved the 160-line key event switch from `Run()` into standalone `handleKeyEvent(s, key, ch, cfg, searchCols) string`. Shared by both `Run()` (terminal) and `Session.HandleKey()` (WASM). Returns action strings: `""` (continue), `"cancel"`, `"select:<output>"`. Also made Escape context-sensitive: clears query first, then pops scope, then cancels — while Ctrl+C remains a hard cancel.
-- **WASM rewrite** (`cmd/wasm/main.go`): Replaced stateless filter/score API with full stateful TUI session. New API: `fzh.loadYAML(yaml)`, `fzh.init(cols, rows)`, `fzh.handleKey(key, ctrl, shift)`, `fzh.resize(cols, rows)`. Returns `{ansi, cursorX, cursorY}` JS objects. Includes `translateKey()` mapping browser `event.key` strings to tcell key constants. The web version now runs the exact same rendering pipeline as the terminal.
+- **WASM rewrite** (`cmd/wasm/main.go`): Replaced stateless filter/score API with full stateful TUI session. New API: `fzt.loadYAML(yaml)`, `fzt.init(cols, rows)`, `fzt.handleKey(key, ctrl, shift)`, `fzt.resize(cols, rows)`. Returns `{ansi, cursorX, cursorY}` JS objects. Includes `translateKey()` mapping browser `event.key` strings to tcell key constants. The web version now runs the exact same rendering pipeline as the terminal.
 - **MemScreen dimension clamping** (`internal/tui/canvas.go`): `NewMemScreen` clamps width to 1-500 and height to 1-200 to prevent catastrophic memory allocation from bad input (e.g., WASM receiving oversized grid dimensions from a browser measurement error).
 - **URL field on items** (`internal/model/model.go`, `internal/yamlsrc/yamlsrc.go`): YAML entries can include an optional `url` field. Stored on `model.Item.URL`. `Session.SelectedURL()` returns it on leaf selection so the WASM bridge can pass it to JS for opening in a new tab.
 

@@ -2,7 +2,7 @@ package model
 
 import (
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzh/internal/scorer"
+	"github.com/nelsong6/fuzzy-tiered/internal/scorer"
 )
 
 // StyledRune is a single character with its ANSI-derived style.

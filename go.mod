@@ -1,4 +1,4 @@
-module github.com/nelsong6/fzh
+module github.com/nelsong6/fuzzy-tiered
 
 go 1.26.1
 

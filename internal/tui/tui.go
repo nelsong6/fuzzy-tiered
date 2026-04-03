@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzh/internal/column"
-	"github.com/nelsong6/fzh/internal/model"
-	"github.com/nelsong6/fzh/internal/scorer"
+	"github.com/nelsong6/fuzzy-tiered/internal/column"
+	"github.com/nelsong6/fuzzy-tiered/internal/model"
+	"github.com/nelsong6/fuzzy-tiered/internal/scorer"
 )
 
 // Config holds all TUI options derived from CLI flags.

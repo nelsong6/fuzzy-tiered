@@ -7,17 +7,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nelsong6/fzh/internal/column"
-	"github.com/nelsong6/fzh/internal/model"
-	"github.com/nelsong6/fzh/internal/tui"
-	"github.com/nelsong6/fzh/internal/yamlsrc"
+	"github.com/nelsong6/fuzzy-tiered/internal/column"
+	"github.com/nelsong6/fuzzy-tiered/internal/model"
+	"github.com/nelsong6/fuzzy-tiered/internal/tui"
+	"github.com/nelsong6/fuzzy-tiered/internal/yamlsrc"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "fzh",
+	Use:   "fzt",
 	Short: "Fuzzy finder with hierarchical tiered scoring and native columns",
-	Long:  "fzh is an fzf-compatible fuzzy finder that adds depth-aware tiered scoring and first-class column support.",
+	Long:  "fzt is an fzf-compatible fuzzy finder that adds depth-aware tiered scoring and first-class column support.",
 	RunE:  run,
 	SilenceUsage:  true,
 	SilenceErrors: true,

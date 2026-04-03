@@ -7,9 +7,9 @@ import (
 	"syscall/js"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzh/internal/model"
-	"github.com/nelsong6/fzh/internal/tui"
-	"github.com/nelsong6/fzh/internal/yamlsrc"
+	"github.com/nelsong6/fuzzy-tiered/internal/model"
+	"github.com/nelsong6/fuzzy-tiered/internal/tui"
+	"github.com/nelsong6/fuzzy-tiered/internal/yamlsrc"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 )
 
 func main() {
-	js.Global().Set("fzh", js.ValueOf(map[string]interface{}{
+	js.Global().Set("fzt", js.ValueOf(map[string]interface{}{
 		"init":      js.FuncOf(initSession),
 		"handleKey": js.FuncOf(handleKey),
 		"resize":    js.FuncOf(resize),

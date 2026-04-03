@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/nelsong6/fzh/internal/column"
+	"github.com/nelsong6/fuzzy-tiered/internal/column"
 )
 
 func main() {
