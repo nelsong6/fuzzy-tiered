@@ -47,6 +47,9 @@ var (
 	flagStyled       bool
 	flagANSI         bool
 	flagYAML         string
+	flagTitle        string
+	flagTitlePos     string
+	flagTree         bool
 )
 
 func init() {
@@ -72,6 +75,9 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagStyled, "styled", false, "Include style markers [H]=highlight [S]=selected in frame output")
 	rootCmd.Flags().BoolVar(&flagANSI, "ansi", false, "Parse and preserve ANSI color codes from input")
 	rootCmd.Flags().StringVar(&flagYAML, "yaml", "", "Load hierarchical data from a YAML file (enables --tiered automatically)")
+	rootCmd.Flags().StringVar(&flagTitle, "title", "", "Title string displayed at the top of the finder")
+	rootCmd.Flags().StringVar(&flagTitlePos, "title-pos", "left", "Title position: 'left', 'center', or 'right'")
+	rootCmd.Flags().BoolVar(&flagTree, "tree", false, "Start in tree view mode (expand/collapse navigation)")
 }
 
 func Execute() {
@@ -92,6 +98,7 @@ func run(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("loading yaml: %w", err)
 		}
 		flagTiered = true
+		flagTree = true
 		// Inject header if provided
 		if flagHeader != "" {
 			headerFields := strings.Split(flagHeader, flagDelimiter)
@@ -136,6 +143,9 @@ func run(cmd *cobra.Command, args []string) error {
 		Height:       parseHeight(flagHeight),
 		ShowScores:   flagShowScores,
 		ANSI:         flagANSI,
+		Title:        flagTitle,
+		TitlePos:     flagTitlePos,
+		TreeMode:     flagTree,
 	}
 
 	// Non-interactive filter mode

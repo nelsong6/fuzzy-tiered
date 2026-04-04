@@ -20,7 +20,9 @@ var (
 func main() {
 	js.Global().Set("fzt", js.ValueOf(map[string]interface{}{
 		"init":      js.FuncOf(initSession),
+		"initTree":  js.FuncOf(initTreeSession),
 		"handleKey": js.FuncOf(handleKey),
+		"clickRow":  js.FuncOf(clickRow),
 		"resize":    js.FuncOf(resize),
 		"loadYAML":  js.FuncOf(loadYAML),
 	}))
@@ -69,6 +71,61 @@ func initSession(this js.Value, args []js.Value) interface{} {
 	session = tui.NewSession(items, cfg, cols, rows)
 	frame := session.Render()
 	return frameToJS(frame)
+}
+
+// initTreeSession creates a new headless TUI session in tree view mode.
+// Args: cols (int), rows (int)
+// Returns: {ansi: string, cursorX: int, cursorY: int}
+func initTreeSession(this js.Value, args []js.Value) interface{} {
+	if len(args) < 2 {
+		return jsError("initTree requires (cols, rows)")
+	}
+	cols := args[0].Int()
+	rows := args[1].Int()
+
+	if len(currentItems) == 0 {
+		return jsError("no items loaded — call loadYAML first")
+	}
+
+	headerItem := model.Item{Fields: []string{"Name", "Description"}, Depth: -1}
+	items := append([]model.Item{headerItem}, currentItems...)
+
+	cfg := tui.Config{
+		Layout:       "reverse",
+		Border:       true,
+		Tiered:       true,
+		DepthPenalty: 5,
+		HeaderLines:  1,
+	}
+
+	session = tui.NewTreeSession(items, cfg, cols, rows)
+	frame := session.Render()
+	return frameToJS(frame)
+}
+
+// clickRow handles a mouse click on a visual row in tree mode.
+// Args: row (int, 0-based visual row)
+// Returns: {ansi: string, cursorX: int, cursorY: int, action: string, url: string}
+func clickRow(this js.Value, args []js.Value) interface{} {
+	if session == nil {
+		return jsError("session not initialized")
+	}
+	if len(args) < 1 {
+		return jsError("clickRow requires (row)")
+	}
+	row := args[0].Int()
+
+	frame, action := session.ClickRow(row)
+
+	obj := js.Global().Get("Object").New()
+	obj.Set("ansi", frame.ANSI)
+	obj.Set("cursorX", frame.CursorX)
+	obj.Set("cursorY", frame.CursorY)
+	obj.Set("action", action)
+	if strings.HasPrefix(action, "select:") {
+		obj.Set("url", session.SelectedURL())
+	}
+	return obj
 }
 
 // handleKey processes a keyboard event.

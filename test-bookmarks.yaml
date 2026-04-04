@@ -1,0 +1,75 @@
+- name: Nelsonhub
+  url: http://192.168.50.130/
+  children:
+    - name: Living room
+      url: http://192.168.50.130/device/edit/96
+- name: Home
+  children:
+    - name: Chess
+      url: https://www.chess.com/
+    - name: Reddit
+      url: https://www.reddit.com/
+    - name: YouTube
+      url: https://www.youtube.com/
+    - name: Workout
+      url: https://docs.google.com/spreadsheets/d/1qdizKHXq5e465dt5ChbcKsGTYG6QmjON/edit?gid=1734961154#gid=1734961154
+    - name: Google Calendar
+      url: https://calendar.google.com/calendar/u/0/r
+    - name: Amazon
+      url: https://www.amazon.com/
+    - name: discord
+      url: https://discord.com/channels/@me
+- name: Bills
+  children:
+    - name: Ameriprise
+      url: https://www.ameriprise.com/client-login
+    - name: Chase
+      url: https://www.chase.com/
+    - name: Loancare
+      url: https://myloancare.com/web/home
+    - name: Water Delivery
+      url: https://www.readyrefresh.com/en/login
+    - name: Haircut
+      url: https://www.vagaro.com/roots66salons
+- name: Dev
+  children:
+    - name: Auth0
+      url: http://auth0.com/
+    - name: Github
+      url: https://github.com/nelsong6
+    - name: Spacelift
+      url: https://nelsong6.app.us.spacelift.io/dashboard
+    - name: Claude
+      url: https://platform.claude.com/
+    - name: Azure
+      url: https://portal.azure.com/
+- name: google
+  url: google.com
+  children:
+    - name: Voice
+      url: http://voice.google.com/u/0/messages
+    - name: Keep
+      url: https://keep.google.com
+    - name: drive
+      url: drive.google.com
+    - name: calendar
+      url: https://calendar.google.com/calendar?authuser=0
+    - name: contacts
+      url: https://contacts.google.com/
+    - name: photos
+      url: photos.google.com
+    - name: sheets
+      url: sheets.google.com
+- name: romaine.life
+  url: romaine.life
+  children:
+    - name: plants
+      url: https://plants.romaine.life
+    - name: bender
+      url: https://bender.romaine.life
+    - name: queens
+      url: queens.romaine.life
+    - name: workout
+      url: workout.romaine.life
+    - name: fzh
+      url: fzh.romaine.life

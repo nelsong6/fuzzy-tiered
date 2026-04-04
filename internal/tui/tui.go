@@ -25,16 +25,20 @@ type Config struct {
 	DepthPenalty int
 	SearchCols   []int // 1-based, overrides Nth for scoring
 	Height       int   // percentage of terminal height (0 = full)
-	ShowScores   bool  // annotate filter output with scores
-	ANSI         bool  // preserve ANSI colors from input
+	ShowScores   bool   // annotate filter output with scores
+	ANSI         bool   // preserve ANSI colors from input
+	Title        string // title displayed at the top of the finder
+	TitlePos     string // title position: "left", "center", "right"
+	TreeMode     bool   // start in tree view mode
 }
 
 type scopeLevel struct {
-	parentIdx int // index into allItems (-1 for root)
-	query     []rune
-	cursor    int
-	index     int
-	offset    int
+	parentIdx   int // index into allItems (-1 for root)
+	query       []rune
+	cursor      int
+	index       int
+	offset      int
+	wasExpanded bool // true if folder was already expanded before pushScope
 }
 
 type state struct {
@@ -51,6 +55,14 @@ type state struct {
 	colGap      int
 	cancelled bool
 	scope     []scopeLevel // scope stack for drill-down navigation
+
+	// Unified tree+search
+	treeExpanded  map[int]bool // manual expand/collapse state
+	treeCursor    int          // cursor in tree
+	treeOffset    int          // scroll offset for tree viewport
+	searchActive  bool         // true when query is active
+	navMode       bool         // true = nav leads (arrows drive, name echoed to prompt)
+	queryExpanded map[int]bool // auto-expansion driven by top match (temporary)
 }
 
 func initState(items []model.Item, cfg Config) (*state, []int) {
@@ -179,6 +191,10 @@ func renderFrame(c Canvas, s *state, cfg Config) {
 
 // Run launches the interactive TUI. Returns the selected item's output string, or "" if cancelled.
 func Run(items []model.Item, cfg Config) (string, error) {
+	if cfg.Height > 0 && cfg.Height < 100 {
+		return RunInline(items, cfg)
+	}
+
 	screen, err := tcell.NewScreen()
 	if err != nil {
 		return "", fmt.Errorf("creating screen: %w", err)
@@ -190,6 +206,10 @@ func Run(items []model.Item, cfg Config) (string, error) {
 
 	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorDefault).Foreground(tcell.ColorDefault))
 	screen.EnablePaste()
+
+	if cfg.TreeMode {
+		return runWithSession(screen, items, cfg)
+	}
 
 	s, searchCols := initState(items, cfg)
 	canvas := &tcellCanvas{screen: screen}
@@ -213,6 +233,106 @@ func Run(items []model.Item, cfg Config) (string, error) {
 			screen.Sync()
 		}
 	}
+}
+
+// runWithSession renders directly to a tcell screen, supporting tree mode + search switching.
+func runWithSession(screen tcell.Screen, items []model.Item, cfg Config) (string, error) {
+	s, searchCols := initState(items, cfg)
+	s.treeExpanded = make(map[int]bool)
+	s.queryExpanded = make(map[int]bool)
+	s.treeCursor = -1
+
+	canvas := &tcellCanvas{screen: screen}
+
+	for {
+		screen.Clear()
+		w, h := screen.Size()
+		drawUnified(canvas, s, cfg, w, 0, h)
+		screen.Sync() // full redraw — avoids stale content from layout changes
+
+		ev := screen.PollEvent()
+		switch ev := ev.(type) {
+		case *tcell.EventKey:
+			action := handleUnifiedKey(s, ev.Key(), ev.Rune(), cfg, searchCols)
+			switch {
+			case action == "cancel":
+				return "", nil
+			case len(action) > 7 && action[:7] == "select:":
+				return action[7:], nil
+			}
+		case *tcell.EventResize:
+			screen.Sync()
+		}
+	}
+}
+
+// handleUnifiedKey handles all key events in unified tree+search mode.
+// The tree is the single navigation surface. Typing filters and auto-expands
+// the tree to reveal matches. Up/Down always move the tree cursor.
+func handleUnifiedKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
+	// Nav mode + Ctrl+U: clean slate — exit nav, clear query, deselect
+	if s.navMode && key == tcell.KeyCtrlU {
+		s.navMode = false
+		s.query = nil
+		s.cursor = 0
+		s.treeCursor = -1
+		s.queryExpanded = make(map[int]bool)
+		if len(s.scope) <= 1 {
+			s.searchActive = false
+			s.filtered = nil
+		} else {
+			filterItems(s, cfg, searchCols)
+		}
+		return ""
+	}
+
+	// Nav mode + Backspace: edit the displayed item name (remove last char)
+	if s.navMode && (key == tcell.KeyBackspace || key == tcell.KeyBackspace2) {
+		visible := treeVisibleItems(s)
+		if s.treeCursor >= 0 && s.treeCursor < len(visible) && len(visible[s.treeCursor].item.Fields) > 0 {
+			name := []rune(visible[s.treeCursor].item.Fields[0])
+			if len(name) > 1 {
+				s.query = name[:len(name)-1]
+				s.cursor = len(s.query)
+			} else {
+				s.query = nil
+				s.cursor = 0
+			}
+		}
+		s.navMode = false
+		if len(s.query) > 0 {
+			s.searchActive = true
+			filterItems(s, cfg, searchCols)
+			updateQueryExpansion(s)
+			syncTreeCursorToTopMatch(s)
+		} else {
+			s.searchActive = false
+			s.filtered = nil
+			s.treeCursor = -1
+			s.queryExpanded = make(map[int]bool)
+		}
+		return ""
+	}
+
+	// When no search active, delegate to tree navigation (except printable chars)
+	if !s.searchActive {
+		if key == tcell.KeyRune {
+			// Printable character → activate search
+			s.searchActive = true
+			s.navMode = false
+			s.query = []rune{ch}
+			s.cursor = 1
+			filterItems(s, cfg, searchCols)
+			updateQueryExpansion(s)
+			syncTreeCursorToTopMatch(s)
+			return ""
+		}
+		action, _ := handleTreeKey(s, key, ch, cfg, searchCols)
+		return action
+	}
+
+	// Search active — unified handling
+	return handleSearchKey(s, key, ch, cfg, searchCols)
 }
 
 // handleKeyEvent processes a single key event against the TUI state.
@@ -422,37 +542,107 @@ func handleKeyEvent(s *state, key tcell.Key, ch rune, cfg Config, searchCols []i
 
 // Simulate runs a headless simulation: renders the initial frame, then one frame
 // per character of the query. Returns all frames as text snapshots.
+// simKey represents a parsed key event from the sim-query string.
+type simKey struct {
+	key   tcell.Key
+	ch    rune
+	label string
+}
+
+// parseSimQuery parses a sim-query string into key events.
+// Supports {up}, {down}, {left}, {right}, {enter}, {tab}, {esc}, {bs}, {space},
+// {ctrl+u}, {ctrl+w}. Plain characters are literal key presses.
+func parseSimQuery(query string) []simKey {
+	var keys []simKey
+	runes := []rune(query)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '{' {
+			end := -1
+			for j := i + 1; j < len(runes); j++ {
+				if runes[j] == '}' {
+					end = j
+					break
+				}
+			}
+			if end > i {
+				name := strings.ToLower(string(runes[i+1 : end]))
+				var sk simKey
+				switch name {
+				case "up":
+					sk = simKey{key: tcell.KeyUp, label: "Up"}
+				case "down":
+					sk = simKey{key: tcell.KeyDown, label: "Down"}
+				case "left":
+					sk = simKey{key: tcell.KeyLeft, label: "Left"}
+				case "right":
+					sk = simKey{key: tcell.KeyRight, label: "Right"}
+				case "enter":
+					sk = simKey{key: tcell.KeyEnter, label: "Enter"}
+				case "tab":
+					sk = simKey{key: tcell.KeyTab, label: "Tab"}
+				case "esc":
+					sk = simKey{key: tcell.KeyEscape, label: "Esc"}
+				case "bs":
+					sk = simKey{key: tcell.KeyBackspace2, label: "Backspace"}
+				case "space":
+					sk = simKey{key: tcell.KeyRune, ch: ' ', label: "Space"}
+				case "ctrl+u":
+					sk = simKey{key: tcell.KeyCtrlU, label: "Ctrl+U"}
+				case "ctrl+w":
+					sk = simKey{key: tcell.KeyCtrlW, label: "Ctrl+W"}
+				default:
+					// Unknown — skip
+					i = end
+					continue
+				}
+				keys = append(keys, sk)
+				i = end
+				continue
+			}
+		}
+		keys = append(keys, simKey{key: tcell.KeyRune, ch: runes[i], label: fmt.Sprintf("'%c'", runes[i])})
+	}
+	return keys
+}
+
 func Simulate(items []model.Item, cfg Config, query string, w, h int, styled bool) []Frame {
 	s, searchCols := initState(items, cfg)
 
-	var frames []Frame
-
-	// Frame 0: initial state (empty query)
-	mem := NewMemScreen(w, h)
-	renderFrame(mem, s, cfg)
-	label := "(initial)"
-	if styled {
-		frames = append(frames, Frame{Label: label, Content: mem.StyledSnapshot()})
-	} else {
-		frames = append(frames, Frame{Label: label, Content: mem.Snapshot()})
+	if cfg.TreeMode {
+		s.treeExpanded = make(map[int]bool)
+		s.queryExpanded = make(map[int]bool)
+		s.treeCursor = -1
 	}
 
-	// One frame per keystroke
-	for _, ch := range query {
-		s.query = append(s.query, ch)
-		s.cursor++
-		s.index = 0
-		s.offset = 0
-		filterItems(s, cfg, searchCols)
+	var frames []Frame
 
-		mem.Clear()
-		renderFrame(mem, s, cfg)
-		label := fmt.Sprintf("key: '%c'  query: \"%s\"", ch, string(s.query))
-		if styled {
-			frames = append(frames, Frame{Label: label, Content: mem.StyledSnapshot()})
+	renderOne := func() string {
+		mem := NewMemScreen(w, h)
+		if cfg.TreeMode {
+			drawUnified(mem, s, cfg, w, 0, h)
 		} else {
-			frames = append(frames, Frame{Label: label, Content: mem.Snapshot()})
+			renderFrame(mem, s, cfg)
 		}
+		if styled {
+			return mem.StyledSnapshot()
+		}
+		return mem.Snapshot()
+	}
+
+	// Frame 0: initial state
+	frames = append(frames, Frame{Label: "(initial)", Content: renderOne()})
+
+	// One frame per key event
+	keys := parseSimQuery(query)
+	for _, sk := range keys {
+		if cfg.TreeMode {
+			handleUnifiedKey(s, sk.key, sk.ch, cfg, searchCols)
+		} else {
+			handleKeyEvent(s, sk.key, sk.ch, cfg, searchCols)
+		}
+
+		label := fmt.Sprintf("key: %s  query: \"%s\"", sk.label, string(s.query))
+		frames = append(frames, Frame{Label: label, Content: renderOne()})
 	}
 
 	return frames
@@ -626,7 +816,7 @@ func drawItemRow(c Canvas, item model.Item, isSelected bool, isSearching bool, c
 		if item.HasChildren {
 			c.SetContent(x, y, '\U000F024B', nil, bgStyle.Foreground(tcell.ColorYellow).Bold(true))
 		} else {
-			c.SetContent(x, y, '\uF016', nil, bgStyle.Foreground(tcell.ColorDarkGray))
+			c.SetContent(x, y, '\uF15B', nil, bgStyle.Foreground(tcell.ColorDarkGray))
 		}
 		x++
 		c.SetContent(x, y, ' ', nil, bgStyle) // width buffer
@@ -676,7 +866,7 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 
 	borderOffset := 0
 	if cfg.Border {
-		drawBorderTop(c, w, y)
+		drawBorderTopWithTitle(c, w, y, cfg.Title, cfg.TitlePos)
 		y++
 		borderOffset = 1
 	}
@@ -786,7 +976,7 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 
 	borderOffset := 0
 	if cfg.Border {
-		drawBorderTop(c, w, y)
+		drawBorderTopWithTitle(c, w, y, cfg.Title, cfg.TitlePos)
 		y++
 		borderOffset = 1
 	}
@@ -986,22 +1176,54 @@ func drawHighlightedField(c Canvas, x, y int, field string, styledRunes []model.
 }
 
 func drawText(c Canvas, x, y int, text string, style tcell.Style, maxW int) {
-	for _, r := range text {
-		if x >= maxW {
+	for i, r := range text {
+		if i >= maxW {
 			break
 		}
-		c.SetContent(x, y, r, nil, style)
-		x++
+		c.SetContent(x+i, y, r, nil, style)
 	}
 }
 
 func drawBorderTop(c Canvas, w, y int) {
-	style := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
-	c.SetContent(0, y, '┌', nil, style)
+	drawBorderTopWithTitle(c, w, y, "", "")
+}
+
+func drawBorderTopWithTitle(c Canvas, w, y int, title, pos string) {
+	borderStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+	c.SetContent(0, y, '┌', nil, borderStyle)
 	for x := 1; x < w-1; x++ {
-		c.SetContent(x, y, '─', nil, style)
+		c.SetContent(x, y, '─', nil, borderStyle)
 	}
-	c.SetContent(w-1, y, '┐', nil, style)
+	c.SetContent(w-1, y, '┐', nil, borderStyle)
+
+	if title != "" {
+		titleRunes := []rune(title)
+		maxTitle := w - 6 // leave room for corners + at least one ─ + spaces on each side
+		if maxTitle < 1 {
+			return
+		}
+		if len(titleRunes) > maxTitle {
+			titleRunes = titleRunes[:maxTitle]
+		}
+		var startX int
+		switch pos {
+		case "center":
+			startX = (w - len(titleRunes) - 2) / 2
+		case "right":
+			startX = w - len(titleRunes) - 3 // 1 corner + 1 ─ minimum on right, plus space pad
+		default: // "left"
+			startX = 2
+		}
+		if startX < 2 {
+			startX = 2
+		}
+		titleStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan).Bold(true)
+		c.SetContent(startX, y, ' ', nil, borderStyle)
+		for i, r := range titleRunes {
+			c.SetContent(startX+1+i, y, r, nil, titleStyle)
+		}
+		c.SetContent(startX+1+len(titleRunes), y, ' ', nil, borderStyle)
+	}
 }
 
 func drawBorderBottom(c Canvas, w, y int) {

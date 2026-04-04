@@ -77,6 +77,14 @@ func (m *MemScreen) Size() (int, int) {
 	return m.W, m.H
 }
 
+// GetContent returns the rune and style at the given cell.
+func (m *MemScreen) GetContent(x, y int) (rune, tcell.Style) {
+	if x >= 0 && x < m.W && y >= 0 && y < m.H {
+		return m.Grid[y][x], m.Styles[y][x]
+	}
+	return ' ', tcell.StyleDefault
+}
+
 func (m *MemScreen) ShowCursor(x, y int) {
 	m.CursorX = x
 	m.CursorY = y
