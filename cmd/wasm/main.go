@@ -20,7 +20,6 @@ var (
 func main() {
 	js.Global().Set("fzt", js.ValueOf(map[string]interface{}{
 		"init":      js.FuncOf(initSession),
-		"initTree":  js.FuncOf(initTreeSession),
 		"handleKey": js.FuncOf(handleKey),
 		"clickRow":  js.FuncOf(clickRow),
 		"resize":    js.FuncOf(resize),
@@ -42,43 +41,12 @@ func loadYAML(this js.Value, args []js.Value) interface{} {
 	return js.Null()
 }
 
-// initSession creates a new headless TUI session.
+// initSession creates a new headless TUI session in tree view mode.
 // Args: cols (int), rows (int)
 // Returns: {ansi: string, cursorX: int, cursorY: int}
 func initSession(this js.Value, args []js.Value) interface{} {
 	if len(args) < 2 {
 		return jsError("init requires (cols, rows)")
-	}
-	cols := args[0].Int()
-	rows := args[1].Int()
-
-	if len(currentItems) == 0 {
-		return jsError("no items loaded — call loadYAML first")
-	}
-
-	// Inject header row (matches CLI --header behavior)
-	headerItem := model.Item{Fields: []string{"Name", "Description"}, Depth: -1}
-	items := append([]model.Item{headerItem}, currentItems...)
-
-	cfg := tui.Config{
-		Layout:       "reverse",
-		Border:       true,
-		Tiered:       true,
-		DepthPenalty: 5,
-		HeaderLines:  1,
-	}
-
-	session = tui.NewSession(items, cfg, cols, rows)
-	frame := session.Render()
-	return frameToJS(frame)
-}
-
-// initTreeSession creates a new headless TUI session in tree view mode.
-// Args: cols (int), rows (int)
-// Returns: {ansi: string, cursorX: int, cursorY: int}
-func initTreeSession(this js.Value, args []js.Value) interface{} {
-	if len(args) < 2 {
-		return jsError("initTree requires (cols, rows)")
 	}
 	cols := args[0].Int()
 	rows := args[1].Int()
