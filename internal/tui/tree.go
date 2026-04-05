@@ -838,7 +838,7 @@ func drawTreeRow(c Canvas, row treeRow, isSelected, isTopMatch bool, ctx *treeCo
 		iconStyle = iconStyle.Background(tcell.ColorDarkBlue)
 	}
 	c.SetContent(x, y, iconRune, nil, iconStyle)
-	x++
+	x += 2 // wide icon occupies 2 cells
 	bufStyle := tcell.StyleDefault
 	if hasBg {
 		bufStyle = bufStyle.Background(tcell.ColorDarkBlue)

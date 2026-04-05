@@ -76,6 +76,7 @@ jobs:
           cp artifacts/fzt-js-wasm/fzt.wasm release/fzt.wasm
           cp web/fzt-terminal.js release/fzt-terminal.js
           cp web/fzt-terminal.css release/fzt-terminal.css
+          cp web/fzt-web.js release/fzt-web.js
       - name: Create versioned release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
