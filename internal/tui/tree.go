@@ -253,6 +253,14 @@ func handleTreeKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []in
 		}
 		return "", false
 
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		// Pop context if stacked (e.g. command mode) and no query active
+		if len(s.contexts) > 1 {
+			popContext(s)
+			return "", false
+		}
+		return "", false
+
 	case tcell.KeyEscape:
 		// Pop context if stacked (e.g. command mode)
 		if len(s.contexts) > 1 {

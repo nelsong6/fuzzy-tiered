@@ -6,7 +6,7 @@ import "github.com/nelsong6/fzt/internal/model"
 func buildCommandItems(s *state) []model.Item {
 	var items []model.Item
 
-	// "version" folder with on/off children
+	// "version" folder with on/off children (indices 0, 1, 2)
 	items = append(items, model.Item{
 		Fields:      []string{"version", "Show/hide version in title bar"},
 		Depth:       0,
@@ -23,6 +23,25 @@ func buildCommandItems(s *state) []model.Item {
 		Fields:    []string{"off", "Hide version"},
 		Depth:     1,
 		ParentIdx: 0,
+	})
+
+	// "tree edit" folder with clipboard commands (indices 3, 4, 5)
+	items = append(items, model.Item{
+		Fields:      []string{"tree edit", "Copy/paste bookmark tree as YAML"},
+		Depth:       0,
+		HasChildren: true,
+		ParentIdx:   -1,
+		Children:    []int{4, 5},
+	})
+	items = append(items, model.Item{
+		Fields:    []string{"copy yaml", "Copy bookmark tree to clipboard"},
+		Depth:     1,
+		ParentIdx: 3,
+	})
+	items = append(items, model.Item{
+		Fields:    []string{"paste yaml", "Save clipboard YAML as bookmarks"},
+		Depth:     1,
+		ParentIdx: 3,
 	})
 
 	return items
@@ -60,14 +79,19 @@ func newCommandContext(s *state) treeContext {
 				return ""
 			}
 			name := item.Fields[0]
+			var action string
 			switch name {
 			case "on":
 				s.showVersion = true
 			case "off":
 				s.showVersion = false
+			case "copy yaml":
+				action = "copy-yaml"
+			case "paste yaml":
+				action = "paste-yaml"
 			}
 			popContext(s)
-			return ""
+			return action
 		},
 	}
 

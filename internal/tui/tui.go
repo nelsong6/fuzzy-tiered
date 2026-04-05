@@ -322,6 +322,25 @@ func handleUnifiedKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols [
 		return ""
 	}
 
+	// Shift+HJKL → vim-style navigation (capitals bypass search input)
+	if key == tcell.KeyRune {
+		var navKey tcell.Key
+		switch ch {
+		case 'H':
+			navKey = tcell.KeyLeft
+		case 'J':
+			navKey = tcell.KeyDown
+		case 'K':
+			navKey = tcell.KeyUp
+		case 'L':
+			navKey = tcell.KeyRight
+		}
+		if navKey != 0 {
+			action, _ := handleTreeKey(s, navKey, 0, cfg, searchCols)
+			return action
+		}
+	}
+
 	// Nav mode + Ctrl+U: clean slate — exit nav, clear query, deselect
 	if ctx.navMode && key == tcell.KeyCtrlU {
 		ctx.navMode = false
@@ -369,6 +388,12 @@ func handleUnifiedKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols [
 	// When no search active, delegate to tree navigation (except printable chars)
 	if !ctx.searchActive {
 		if key == tcell.KeyRune {
+			if ch == '/' {
+				// Activate search without inserting the /
+				ctx.searchActive = true
+				ctx.navMode = false
+				return ""
+			}
 			// Printable character → activate search
 			ctx.searchActive = true
 			ctx.navMode = false
