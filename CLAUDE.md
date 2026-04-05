@@ -57,6 +57,20 @@ This applies to any rich input (nerd font icons, ANSI colors from tools like lsd
   - `--styled` — adds `[H]`=highlight `[S]`=selected `[*]`=both markers
   - `--record file.txt` — write frames to file instead of stdout
 
+## Web Assets
+
+Release assets shipped alongside native binaries and `fzt.wasm`:
+
+- **`fzt-terminal.js`** — Low-level ANSI parser, grid renderer, WASM bridge, keyboard forwarding, ResizeObserver. Stateless — receives options for palette, fonts, callbacks.
+- **`fzt-terminal.css`** — CRT visual effects (scanlines, vignette, rounded corners, cursor blink). Uses `--fzt-*` CSS custom properties for theming. Consumers `<link>` it before their own stylesheet.
+- **`fzt-web.js`** — Higher-level component wrapping `fzt-terminal.js` with built-in defaults (Catppuccin Mocha palette, DOS font stack, `fzt-cursor` class). Consumers import `createFztWeb(container, options?)` and only override what they need.
+
+Both fzt-showcase and my-homepage download these at deploy time via `gh release download` and are auto-redeployed on new fzt releases via `repository_dispatch`.
+
+### Future: Extensible command menu
+
+The `:` command palette currently has hardcoded commands (version, tree edit). A planned enhancement would let consumers register app-specific commands at init time (e.g., "edit", "sync" for my-homepage) via a `commands` option or `fzt.addCommands()` WASM API. These would appear alongside the built-in commands and return action strings to JS. This would replace the need for app-specific toolbar buttons.
+
 ## Tree Mode
 
 Tree mode is the primary interaction model for hierarchical data. Auto-enabled with `--yaml`. The tree is the single navigation surface — there is no separate results panel.
@@ -165,6 +179,10 @@ New: `--tiered`, `--depth-penalty`, `--search-cols`, `--ansi`, `--title`, `--tit
 - **Tree edit clipboard commands** (`commands.go`): Added "tree edit" folder to the `:` command palette with two leaf commands: "copy yaml" (returns `copy-yaml` action) and "paste yaml" (returns `paste-yaml` action). The Go side just emits action strings — clipboard and API handling is done by the JS consumer.
 - **Backspace pops context in nav mode**: `handleTreeKey` now handles Backspace — pops scope first, then context. Previously Backspace was only handled in `handleSearchKey`, so pressing Backspace in nav mode with no query did nothing.
 - **Default branch renamed to main**: Renamed from `master` to `main`. Build workflow updated to trigger on `main`. Azure OIDC federated identity updated in infra-bootstrap.
+- **Icon spacing fix**: Wide characters (nerd font icons) now advance `x` by 2 cells instead of 1 in the tree renderer. Previously the space after the icon overwrote the padding cell, making the icon appear flush against the name.
+- **Shared `fzt-terminal.css`** (`web/fzt-terminal.css`): CRT terminal effects extracted into a shared CSS file shipped as a release asset. Includes scanline overlay, vignette, rounded corners, box shadows, font-smoothing disabled, and cursor blink animation (underline via box-shadow). Consumers override `--fzt-*` CSS custom properties for theming.
+- **Shared `fzt-web.js`** (`web/fzt-web.js`): Higher-level component wrapping `fzt-terminal.js` with sensible defaults — Catppuccin Mocha palette, DOS font stack, `fzt-cursor` class, default cursor position. Consumers import `createFztWeb()` instead of `createFztTerminal()` and only pass overrides. Eliminates palette/font/cursor config duplication between fzt-showcase and my-homepage.
+- **Cursor changed to underline blink**: Replaced opacity-based cursor blink (hides entire character) with box-shadow underline blink (`box-shadow: 0 2px 0`). Character stays visible throughout the blink cycle. Uses `--fzt-fg` CSS variable for color.
 
 ### 2026-04-04
 
