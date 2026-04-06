@@ -1402,8 +1402,26 @@ func formatOutput(item model.Item, cfg Config) string {
 	return strings.Join(item.Fields, "\t")
 }
 
-// runSelfUpdate downloads the latest fzt release from GitHub and replaces the current binary.
+// runSelfUpdate downloads the latest fzt release from GitHub if a newer version exists.
 func runSelfUpdate() {
+	current := Version
+	fmt.Fprintf(os.Stderr, "Current: %s\n", current)
+
+	// Get latest release tag
+	cmd := exec.Command("gh", "release", "view", "--repo", "nelsong6/fzt", "--json", "tagName", "--jq", ".tagName")
+	out, err := cmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to check latest release: %v\n", err)
+		return
+	}
+	latest := strings.TrimSpace(string(out))
+	fmt.Fprintf(os.Stderr, "Latest:  %s\n", latest)
+
+	if current == latest {
+		fmt.Fprintf(os.Stderr, "Already up to date.\n")
+		return
+	}
+
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	asset := fmt.Sprintf("fzt-%s-%s", goos, goarch)
@@ -1418,11 +1436,11 @@ func runSelfUpdate() {
 	}
 	dest := filepath.Dir(self)
 
-	fmt.Fprintf(os.Stderr, "Downloading latest %s...\n", asset)
-	cmd := exec.Command("gh", "release", "download", "--repo", "nelsong6/fzt", "--pattern", asset, "--dir", dest, "--clobber")
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	fmt.Fprintf(os.Stderr, "Downloading %s...\n", asset)
+	dl := exec.Command("gh", "release", "download", "--repo", "nelsong6/fzt", "--pattern", asset, "--dir", dest, "--clobber")
+	dl.Stdout = os.Stderr
+	dl.Stderr = os.Stderr
+	if err := dl.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 		return
 	}
@@ -1437,7 +1455,7 @@ func runSelfUpdate() {
 		os.Rename(downloaded, final)
 	}
 
-	fmt.Fprintf(os.Stderr, "Updated: %s\n", final)
+	fmt.Fprintf(os.Stderr, "Updated: %s → %s\n", current, latest)
 }
 
 // RunFilter runs in non-interactive mode (like fzf --filter).
