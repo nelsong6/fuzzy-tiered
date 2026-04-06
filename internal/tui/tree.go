@@ -266,15 +266,9 @@ func handleTreeKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []in
 			popContext(s)
 			return "", false
 		}
-		// Root context: exit nav mode, clear query, deselect, collapse all
-		ctx.navMode = false
-		ctx.searchActive = false
-		ctx.query = nil
-		ctx.cursor = 0
-		ctx.treeCursor = -1
-		ctx.treeExpanded = make(map[int]bool)
-		ctx.queryExpanded = make(map[int]bool)
-		return "", false
+		// Root context with nothing to clear — exit
+		s.cancelled = true
+		return "cancel", false
 
 	case tcell.KeyRune:
 		return "", true
@@ -317,11 +311,8 @@ func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []
 			popContext(s)
 			return ""
 		}
-		return "abort"
-		ctx.filtered = nil
-		ctx.treeCursor = -1
-		ctx.queryExpanded = make(map[int]bool)
-		return ""
+		s.cancelled = true
+		return "cancel"
 
 	case tcell.KeyUp, tcell.KeyCtrlP:
 		ctx.navMode = true
