@@ -4,6 +4,13 @@
 
 fzt (fuzzy tiered) is an fzf-compatible fuzzy finder with two additions: depth-aware tiered scoring and first-class column support. Written in Go. Full-screen mode uses tcell; inline mode (`--height`) renders directly with ANSI escapes.
 
+### Package structure
+
+- **`core/`** — Public library. Data types (`Item`, `TieredScore`, `StyledRune`), fuzzy scoring (`FuzzyMatch`, `ScoreItem`), column parsing, YAML loading, ANSI parsing, tree state management (`State`, `TreeContext`, `PushScope`, `FilterItems`), and the `TreeProvider` interface for pluggable data sources. Importable by external consumers (picker, future frontends).
+- **`internal/tui/`** — Terminal UI. Rendering (`drawUnified`, `drawTreeRow`), key handling (`handleUnifiedKey`, `handleTreeKey`, `handleSearchKey`), `Session` (headless WASM wrapper), canvas abstraction, raw terminal I/O. Imports `core/` for all state operations.
+- **`cmd/`** — Entry points: CLI (`root.go`), WASM bridge (`wasm/main.go`), build script (`build/main.go`).
+- **`web/`** — Shared browser assets: `fzt-terminal.js`, `fzt-terminal.css`, `fzt-web.js`.
+
 Repo: `D:\repos\fzt`
 Binary: `~/bin/fzt.exe` (on PATH via Profile 1's `profile.ps1`). Update with `fzt --update` or `:update` from the command palette.
 
@@ -216,3 +223,10 @@ New: `--tiered`, `--depth-penalty`, `--search-cols`, `--ansi`, `--title`, `--tit
 - **Context stack refactor** (`internal/tui/tui.go`, `tree.go`, `commands.go`): Extracted all tree navigation state from the flat `state` struct into a `treeContext` struct. `state` now holds a stack of contexts. All tree operations read/write the top context via `s.topCtx()`. `:` pushes a command context with command items as normal tree data. Escape pops back. Eliminated ~350 lines of parallel command infrastructure (separate key handler, renderer, state fields). Commands are now just tree items navigated with the same fzt interaction model.
 - **Version toggle**: `:` → `version` → `on`/`off` toggles the version string in the top-right border. `showVersion` is persistent state on `state` (survives context switches). Default is off.
 - **Version in border**: `drawBorderTopWithTitle` now accepts a version parameter. Only renders when `showVersion` is true. Displayed as dimmed text in the top-right corner of the border.
+
+### 2026-04-06
+
+- **`core/` library extraction** — Moved `model`, `scorer`, `column`, `yamlsrc` packages from `internal/` to a public `core/` package. All types and functions are exported (`core.Item`, `core.FuzzyMatch`, `core.ParseLines`, `core.LoadYAML`, etc.). External consumers like fzt-picker can now import fzt's engine without forking. Existing behavior unchanged — all tests pass, WASM compiles, simulation output identical.
+- **Tree state extraction** — Moved state types (`State`, `TreeContext`, `ScopeLevel`, `ContextKind`, `TreeRow`) and pure logic functions (`NewState`, `FilterItems`, `PushScope`, `PopScope`, `TreeVisibleItems`, `UpdateQueryExpansion`, `SyncTreeCursorToTopMatch`, `BuildScopePath`, `FindInAll`, `RootItemsOf`, `DescendantsOf`, `ChildrenOf`, `GetAncestorNames`) from `internal/tui/` to `core/`. The tui package now imports `core/` for all state operations and only owns rendering and key handling. `tui.Config` is a type alias for `core.Config` to avoid breaking cmd imports.
+- **`TreeProvider` interface** — New `core.TreeProvider` interface with `LoadChildren(parentPath string) []Item`. When `State.Provider` is set and `PushScope` encounters a folder with no loaded children, it calls the provider to dynamically splice new items into the tree. Enables lazy-loading frontends like fzt-picker.
+- **`DirProvider`** — Built-in `core.DirProvider` implementation that reads filesystem directories. Excludes `.git`, `node_modules`, `$Recycle.Bin`, `System Volume Information`. Sorts directories first, then files, alphabetically. Created via `core.NewDirProvider()`.

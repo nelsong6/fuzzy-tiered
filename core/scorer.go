@@ -1,4 +1,4 @@
-package scorer
+package core
 
 import (
 	"strings"

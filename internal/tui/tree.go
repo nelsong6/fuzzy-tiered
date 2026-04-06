@@ -4,239 +4,91 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzt/internal/model"
+	"github.com/nelsong6/fzt/core"
 )
 
-// treeRow represents a single visible row in the tree view.
-type treeRow struct {
-	item    model.Item
-	itemIdx int // index in allItems
-}
-
-// treeVisibleItems builds the list of currently visible tree rows
-// based on manual expand/collapse state merged with query auto-expansion.
-// Always shows from root — scoped folders are just expanded in place.
-func treeVisibleItems(s *state) []treeRow {
-	var rows []treeRow
-	buildVisibleTree(s, -1, &rows)
-	return rows
-}
-
-func buildVisibleTree(s *state, parentIdx int, rows *[]treeRow) {
-	ctx := s.topCtx()
-	var children []int
-	if parentIdx < 0 {
-		for i, item := range ctx.allItems {
-			if item.Depth == 0 {
-				children = append(children, i)
-			}
-		}
-	} else {
-		children = ctx.allItems[parentIdx].Children
-	}
-
-	for _, idx := range children {
-		if idx >= len(ctx.allItems) {
-			continue
-		}
-		*rows = append(*rows, treeRow{item: ctx.allItems[idx], itemIdx: idx})
-		expanded := ctx.treeExpanded[idx] || ctx.queryExpanded[idx]
-		if ctx.allItems[idx].HasChildren && expanded {
-			buildVisibleTree(s, idx, rows)
-		}
-	}
-}
-
-// updateQueryExpansion sets auto-expansion to reveal the top match in the tree.
-func updateQueryExpansion(s *state) {
-	ctx := s.topCtx()
-	ctx.queryExpanded = make(map[int]bool)
-	if len(ctx.filtered) == 0 {
-		return
-	}
-	// Walk ancestor chain of top match, expanding each
-	topMatch := ctx.filtered[0]
-	idx := findInAll(ctx.allItems, topMatch)
-	if idx < 0 {
-		return
-	}
-	for {
-		parentIdx := ctx.allItems[idx].ParentIdx
-		if parentIdx < 0 {
-			break
-		}
-		ctx.queryExpanded[parentIdx] = true
-		idx = parentIdx
-	}
-}
-
-// syncTreeCursorToTopMatch moves the tree cursor to the top match position
-// in the visible tree. Called after filtering to keep the cursor on the best match.
-func syncTreeCursorToTopMatch(s *state) {
-	ctx := s.topCtx()
-	if len(ctx.filtered) == 0 {
-		return
-	}
-	topIdx := findInAll(ctx.allItems, ctx.filtered[0])
-	if topIdx < 0 {
-		return
-	}
-	visible := treeVisibleItems(s)
-	for vi, row := range visible {
-		if row.itemIdx == topIdx {
-			ctx.treeCursor = vi
-			return
-		}
-	}
-}
-
-// pushScope enters a folder, expanding it in the tree.
-func pushScope(s *state, itemIdx int, cfg Config, searchCols []int) {
-	ctx := s.topCtx()
-	// Save current state
-	ctx.scope[len(ctx.scope)-1].query = ctx.query
-	ctx.scope[len(ctx.scope)-1].cursor = ctx.cursor
-	ctx.scope[len(ctx.scope)-1].index = ctx.treeCursor
-	ctx.scope[len(ctx.scope)-1].offset = ctx.treeOffset
-
-	// Push new scope level, recording whether folder was already expanded
-	ctx.scope = append(ctx.scope, scopeLevel{
-		parentIdx:   itemIdx,
-		wasExpanded: ctx.treeExpanded[itemIdx],
-	})
-	ctx.items = childrenOf(ctx.allItems, itemIdx)
-
-	// Expand the folder in the tree so its children are visible
-	ctx.treeExpanded[itemIdx] = true
-
-	// Activate search within scope
-	ctx.searchActive = true
-	ctx.query = nil
-	ctx.cursor = 0
-	ctx.queryExpanded = make(map[int]bool)
-	filterItems(s, cfg, searchCols)
-}
-
-// popScope exits the current folder scope, returning to the parent.
-func popScope(s *state, cfg Config, searchCols []int) {
-	ctx := s.topCtx()
-	if len(ctx.scope) <= 1 {
-		return
-	}
-	popped := ctx.scope[len(ctx.scope)-1]
-	ctx.scope = ctx.scope[:len(ctx.scope)-1]
-	prev := ctx.scope[len(ctx.scope)-1]
-
-	// Collapse the folder if pushScope was the one that expanded it
-	if !popped.wasExpanded && popped.parentIdx >= 0 {
-		delete(ctx.treeExpanded, popped.parentIdx)
-	}
-
-	if prev.parentIdx < 0 {
-		ctx.items = rootItemsOf(ctx.allItems)
-	} else {
-		ctx.items = childrenOf(ctx.allItems, prev.parentIdx)
-	}
-
-	ctx.query = prev.query
-	ctx.cursor = prev.cursor
-	ctx.treeCursor = prev.index
-	ctx.treeOffset = prev.offset
-
-	// If we're back at root with no query, deactivate search
-	if len(ctx.scope) <= 1 && len(ctx.query) == 0 {
-		ctx.searchActive = false
-		ctx.filtered = nil
-		ctx.treeCursor = -1
-		ctx.queryExpanded = make(map[int]bool)
-	} else {
-		filterItems(s, cfg, searchCols)
-		updateQueryExpansion(s)
-	}
-}
-
 // handleTreeKey processes a key event when no query is active (tree navigation).
-func handleTreeKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []int) (action string, switchToSearch bool) {
-	ctx := s.topCtx()
-	visible := treeVisibleItems(s)
+func handleTreeKey(s *core.State, key tcell.Key, ch rune, cfg Config, searchCols []int) (action string, switchToSearch bool) {
+	ctx := s.TopCtx()
+	visible := core.TreeVisibleItems(s)
 	visLen := len(visible)
 
 	switch key {
 	case tcell.KeyCtrlC:
-		s.cancelled = true
+		s.Cancelled = true
 		return "cancel", false
 
 	case tcell.KeyUp, tcell.KeyCtrlP:
-		ctx.navMode = true
+		ctx.NavMode = true
 		if visLen > 0 {
-			if ctx.treeCursor <= 0 {
-				ctx.treeCursor = visLen - 1
+			if ctx.TreeCursor <= 0 {
+				ctx.TreeCursor = visLen - 1
 			} else {
-				ctx.treeCursor--
+				ctx.TreeCursor--
 			}
 		}
 		return "", false
 
 	case tcell.KeyDown, tcell.KeyCtrlN, tcell.KeyTab:
-		ctx.navMode = true
+		ctx.NavMode = true
 		if visLen > 0 {
-			if ctx.treeCursor < 0 {
-				ctx.treeCursor = 0
+			if ctx.TreeCursor < 0 {
+				ctx.TreeCursor = 0
 			} else {
-				ctx.treeCursor++
-				if ctx.treeCursor >= visLen {
-					ctx.treeCursor = 0
+				ctx.TreeCursor++
+				if ctx.TreeCursor >= visLen {
+					ctx.TreeCursor = 0
 				}
 			}
 		}
 		return "", false
 
 	case tcell.KeyBacktab:
-		ctx.navMode = true
+		ctx.NavMode = true
 		if visLen > 0 {
-			ctx.treeCursor--
-			if ctx.treeCursor < 0 {
-				ctx.treeCursor = visLen - 1
+			ctx.TreeCursor--
+			if ctx.TreeCursor < 0 {
+				ctx.TreeCursor = visLen - 1
 			}
 		}
 		return "", false
 
 	case tcell.KeyEnter:
-		if ctx.treeCursor >= 0 && ctx.treeCursor < visLen {
-			row := visible[ctx.treeCursor]
-			if row.item.HasChildren {
-				pushScope(s, row.itemIdx, cfg, searchCols)
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < visLen {
+			row := visible[ctx.TreeCursor]
+			if row.Item.HasChildren {
+				core.PushScope(s, row.ItemIdx, cfg, searchCols)
 				return "", false
 			}
-			if ctx.onLeafSelect != nil {
-				return ctx.onLeafSelect(row.item), false
+			if ctx.OnLeafSelect != nil {
+				return ctx.OnLeafSelect(row.Item), false
 			}
-			return "select:" + formatOutput(row.item, cfg), false
+			return "select:" + formatOutput(row.Item, cfg), false
 		}
 		return "", false
 
 	case tcell.KeyRight:
-		ctx.navMode = true
-		if ctx.treeCursor >= 0 && ctx.treeCursor < visLen {
-			row := visible[ctx.treeCursor]
-			if row.item.HasChildren {
-				pushScope(s, row.itemIdx, cfg, searchCols)
+		ctx.NavMode = true
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < visLen {
+			row := visible[ctx.TreeCursor]
+			if row.Item.HasChildren {
+				core.PushScope(s, row.ItemIdx, cfg, searchCols)
 			}
 		}
 		return "", false
 
 	case tcell.KeyLeft:
-		ctx.navMode = true
-		if ctx.treeCursor >= 0 && ctx.treeCursor < visLen {
-			row := visible[ctx.treeCursor]
-			if row.item.HasChildren && ctx.treeExpanded[row.itemIdx] {
+		ctx.NavMode = true
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < visLen {
+			row := visible[ctx.TreeCursor]
+			if row.Item.HasChildren && ctx.TreeExpanded[row.ItemIdx] {
 				// Collapse expanded folder
-				ctx.treeExpanded[row.itemIdx] = false
-			} else if row.item.ParentIdx >= 0 {
+				ctx.TreeExpanded[row.ItemIdx] = false
+			} else if row.Item.ParentIdx >= 0 {
 				// Move cursor to parent
 				for vi, vr := range visible {
-					if vr.itemIdx == row.item.ParentIdx {
-						ctx.treeCursor = vi
+					if vr.ItemIdx == row.Item.ParentIdx {
+						ctx.TreeCursor = vi
 						break
 					}
 				}
@@ -246,28 +98,28 @@ func handleTreeKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []in
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		// Pop scope first, then context
-		if len(ctx.scope) > 1 {
-			popScope(s, cfg, searchCols)
+		if len(ctx.Scope) > 1 {
+			core.PopScope(s, cfg, searchCols)
 			return "", false
 		}
-		if len(s.contexts) > 1 {
-			popContext(s)
+		if len(s.Contexts) > 1 {
+			s.PopContext()
 			return "", false
 		}
 		return "", false
 
 	case tcell.KeyEscape:
 		// Pop scope first, then context
-		if len(ctx.scope) > 1 {
-			popScope(s, cfg, searchCols)
+		if len(ctx.Scope) > 1 {
+			core.PopScope(s, cfg, searchCols)
 			return "", false
 		}
-		if len(s.contexts) > 1 {
-			popContext(s)
+		if len(s.Contexts) > 1 {
+			s.PopContext()
 			return "", false
 		}
 		// Root context with nothing to clear — exit
-		s.cancelled = true
+		s.Cancelled = true
 		return "cancel", false
 
 	case tcell.KeyRune:
@@ -280,62 +132,62 @@ func handleTreeKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []in
 // handleSearchKey handles all keys when search is active.
 // The tree is always the navigation surface — Up/Down move the tree cursor,
 // typing edits the query and auto-positions the cursor on the top match.
-func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
-	ctx := s.topCtx()
+func handleSearchKey(s *core.State, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
+	ctx := s.TopCtx()
 	switch key {
 	case tcell.KeyCtrlC:
-		s.cancelled = true
+		s.Cancelled = true
 		return "cancel"
 
 	case tcell.KeyEscape:
-		if len(ctx.query) > 0 {
+		if len(ctx.Query) > 0 {
 			// Clear query, collapse auto-expansions
-			ctx.query = nil
-			ctx.cursor = 0
-			ctx.queryExpanded = make(map[int]bool)
-			if len(ctx.scope) <= 1 {
-				ctx.searchActive = false
-				ctx.filtered = nil
-				ctx.treeCursor = -1
+			ctx.Query = nil
+			ctx.Cursor = 0
+			ctx.QueryExpanded = make(map[int]bool)
+			if len(ctx.Scope) <= 1 {
+				ctx.SearchActive = false
+				ctx.Filtered = nil
+				ctx.TreeCursor = -1
 			} else {
-				filterItems(s, cfg, searchCols)
+				core.FilterItems(s, cfg, searchCols)
 			}
 			return ""
 		}
-		if len(ctx.scope) > 1 {
-			popScope(s, cfg, searchCols)
+		if len(ctx.Scope) > 1 {
+			core.PopScope(s, cfg, searchCols)
 			return ""
 		}
 		// At root with empty query — pop context if stacked, else exit
-		if len(s.contexts) > 1 {
-			popContext(s)
+		if len(s.Contexts) > 1 {
+			s.PopContext()
 			return ""
 		}
-		s.cancelled = true
+		s.Cancelled = true
 		return "cancel"
 
 	case tcell.KeyUp, tcell.KeyCtrlP:
-		ctx.navMode = true
-		visible := treeVisibleItems(s)
+		ctx.NavMode = true
+		visible := core.TreeVisibleItems(s)
 		if len(visible) > 0 {
-			if ctx.treeCursor <= 0 {
-				ctx.treeCursor = len(visible) - 1
+			if ctx.TreeCursor <= 0 {
+				ctx.TreeCursor = len(visible) - 1
 			} else {
-				ctx.treeCursor--
+				ctx.TreeCursor--
 			}
 		}
 		return ""
 
 	case tcell.KeyDown, tcell.KeyCtrlN:
-		ctx.navMode = true
-		visible := treeVisibleItems(s)
+		ctx.NavMode = true
+		visible := core.TreeVisibleItems(s)
 		if len(visible) > 0 {
-			if ctx.treeCursor < 0 {
-				ctx.treeCursor = 0
+			if ctx.TreeCursor < 0 {
+				ctx.TreeCursor = 0
 			} else {
-				ctx.treeCursor++
-				if ctx.treeCursor >= len(visible) {
-					ctx.treeCursor = 0
+				ctx.TreeCursor++
+				if ctx.TreeCursor >= len(visible) {
+					ctx.TreeCursor = 0
 				}
 			}
 		}
@@ -344,22 +196,22 @@ func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []
 	case tcell.KeyTab:
 		// Autocomplete: set query to the top match's name.
 		// If the match is a folder, push scope (same as typing name + Space).
-		if len(ctx.filtered) > 0 && len(ctx.filtered[0].Fields) > 0 {
-			topMatch := ctx.filtered[0]
+		if len(ctx.Filtered) > 0 && len(ctx.Filtered[0].Fields) > 0 {
+			topMatch := ctx.Filtered[0]
 			name := topMatch.Fields[0]
-			if !strings.EqualFold(string(ctx.query), name) {
+			if !strings.EqualFold(string(ctx.Query), name) {
 				// First Tab: autocomplete the name
-				ctx.query = []rune(name)
-				ctx.cursor = len(ctx.query)
-				filterItems(s, cfg, searchCols)
-				updateQueryExpansion(s)
-				syncTreeCursorToTopMatch(s)
+				ctx.Query = []rune(name)
+				ctx.Cursor = len(ctx.Query)
+				core.FilterItems(s, cfg, searchCols)
+				core.UpdateQueryExpansion(s)
+				core.SyncTreeCursorToTopMatch(s)
 			}
 			// If folder, push scope (same behavior as Space)
 			if topMatch.HasChildren {
-				idx := findInAll(ctx.allItems, topMatch)
+				idx := core.FindInAll(ctx.AllItems, topMatch)
 				if idx >= 0 {
-					pushScope(s, idx, cfg, searchCols)
+					core.PushScope(s, idx, cfg, searchCols)
 				}
 			}
 		}
@@ -367,157 +219,157 @@ func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []
 
 	case tcell.KeyEnter:
 		// Act on tree cursor item
-		visible := treeVisibleItems(s)
-		if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) {
-			row := visible[ctx.treeCursor]
-			if row.item.HasChildren {
-				pushScope(s, row.itemIdx, cfg, searchCols)
+		visible := core.TreeVisibleItems(s)
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
+			row := visible[ctx.TreeCursor]
+			if row.Item.HasChildren {
+				core.PushScope(s, row.ItemIdx, cfg, searchCols)
 				return ""
 			}
-			if ctx.onLeafSelect != nil {
-				return ctx.onLeafSelect(row.item)
+			if ctx.OnLeafSelect != nil {
+				return ctx.OnLeafSelect(row.Item)
 			}
-			return "select:" + formatOutput(row.item, cfg)
+			return "select:" + formatOutput(row.Item, cfg)
 		}
 		// No cursor — act on top match
-		if len(ctx.filtered) > 0 {
-			selected := ctx.filtered[0]
+		if len(ctx.Filtered) > 0 {
+			selected := ctx.Filtered[0]
 			if selected.HasChildren {
-				idx := findInAll(ctx.allItems, selected)
+				idx := core.FindInAll(ctx.AllItems, selected)
 				if idx >= 0 {
-					pushScope(s, idx, cfg, searchCols)
+					core.PushScope(s, idx, cfg, searchCols)
 				}
 				return ""
 			}
-			if ctx.onLeafSelect != nil {
-				return ctx.onLeafSelect(selected)
+			if ctx.OnLeafSelect != nil {
+				return ctx.OnLeafSelect(selected)
 			}
 			return "select:" + formatOutput(selected, cfg)
 		}
 		return ""
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		ctx.navMode = false
-		if len(ctx.query) == 0 && len(ctx.scope) > 1 {
-			popScope(s, cfg, searchCols)
+		ctx.NavMode = false
+		if len(ctx.Query) == 0 && len(ctx.Scope) > 1 {
+			core.PopScope(s, cfg, searchCols)
 			return ""
 		}
-		if len(ctx.query) == 0 && len(s.contexts) > 1 {
-			popContext(s)
+		if len(ctx.Query) == 0 && len(s.Contexts) > 1 {
+			s.PopContext()
 			return ""
 		}
-		if len(ctx.query) > 0 {
-			ctx.query = ctx.query[:len(ctx.query)-1]
-			ctx.cursor = len(ctx.query)
-			if len(ctx.query) == 0 {
-				ctx.queryExpanded = make(map[int]bool)
-				ctx.treeCursor = -1
-				if len(ctx.scope) <= 1 {
-					ctx.searchActive = false
-					ctx.filtered = nil
+		if len(ctx.Query) > 0 {
+			ctx.Query = ctx.Query[:len(ctx.Query)-1]
+			ctx.Cursor = len(ctx.Query)
+			if len(ctx.Query) == 0 {
+				ctx.QueryExpanded = make(map[int]bool)
+				ctx.TreeCursor = -1
+				if len(ctx.Scope) <= 1 {
+					ctx.SearchActive = false
+					ctx.Filtered = nil
 				} else {
-					filterItems(s, cfg, searchCols)
+					core.FilterItems(s, cfg, searchCols)
 				}
 			} else {
-				filterItems(s, cfg, searchCols)
-				updateQueryExpansion(s)
-				syncTreeCursorToTopMatch(s)
+				core.FilterItems(s, cfg, searchCols)
+				core.UpdateQueryExpansion(s)
+				core.SyncTreeCursorToTopMatch(s)
 			}
 		}
 		return ""
 
 	case tcell.KeyLeft:
 		// Tree navigation: collapse or move to parent
-		visible := treeVisibleItems(s)
-		if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) {
-			row := visible[ctx.treeCursor]
-			if row.item.HasChildren && ctx.treeExpanded[row.itemIdx] {
-				ctx.navMode = true
-				ctx.treeExpanded[row.itemIdx] = false
-			} else if row.item.ParentIdx >= 0 {
-				ctx.navMode = true
+		visible := core.TreeVisibleItems(s)
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
+			row := visible[ctx.TreeCursor]
+			if row.Item.HasChildren && ctx.TreeExpanded[row.ItemIdx] {
+				ctx.NavMode = true
+				ctx.TreeExpanded[row.ItemIdx] = false
+			} else if row.Item.ParentIdx >= 0 {
+				ctx.NavMode = true
 				for vi, vr := range visible {
-					if vr.itemIdx == row.item.ParentIdx {
-						ctx.treeCursor = vi
+					if vr.ItemIdx == row.Item.ParentIdx {
+						ctx.TreeCursor = vi
 						break
 					}
 				}
-			} else if ctx.navMode {
+			} else if ctx.NavMode {
 				// Already leftmost — exit nav mode, return to search
-				ctx.navMode = false
+				ctx.NavMode = false
 			}
 		}
 		return ""
 
 	case tcell.KeyRight:
-		ctx.navMode = true
+		ctx.NavMode = true
 		// Tree navigation: expand or move to first child
-		visible := treeVisibleItems(s)
-		if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) {
-			row := visible[ctx.treeCursor]
-			if row.item.HasChildren {
-				if !ctx.treeExpanded[row.itemIdx] {
-					ctx.treeExpanded[row.itemIdx] = true
-				} else if ctx.treeCursor+1 < len(visible) {
-					ctx.treeCursor++
+		visible := core.TreeVisibleItems(s)
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
+			row := visible[ctx.TreeCursor]
+			if row.Item.HasChildren {
+				if !ctx.TreeExpanded[row.ItemIdx] {
+					ctx.TreeExpanded[row.ItemIdx] = true
+				} else if ctx.TreeCursor+1 < len(visible) {
+					ctx.TreeCursor++
 				}
 			}
 		}
 		return ""
 
 	case tcell.KeyCtrlU:
-		ctx.navMode = false
-		ctx.query = nil
-		ctx.cursor = 0
-		ctx.queryExpanded = make(map[int]bool)
-		if len(ctx.scope) <= 1 {
-			ctx.searchActive = false
-			ctx.filtered = nil
+		ctx.NavMode = false
+		ctx.Query = nil
+		ctx.Cursor = 0
+		ctx.QueryExpanded = make(map[int]bool)
+		if len(ctx.Scope) <= 1 {
+			ctx.SearchActive = false
+			ctx.Filtered = nil
 		} else {
-			filterItems(s, cfg, searchCols)
+			core.FilterItems(s, cfg, searchCols)
 		}
 		return ""
 
 	case tcell.KeyCtrlW:
-		ctx.navMode = false
-		if len(ctx.query) > 0 {
+		ctx.NavMode = false
+		if len(ctx.Query) > 0 {
 			// Delete last word from end
-			i := len(ctx.query) - 1
-			for i > 0 && ctx.query[i-1] == ' ' {
+			i := len(ctx.Query) - 1
+			for i > 0 && ctx.Query[i-1] == ' ' {
 				i--
 			}
-			for i > 0 && ctx.query[i-1] != ' ' {
+			for i > 0 && ctx.Query[i-1] != ' ' {
 				i--
 			}
-			ctx.query = ctx.query[:i]
-			ctx.cursor = len(ctx.query)
-			if len(ctx.query) == 0 {
-				ctx.queryExpanded = make(map[int]bool)
-				ctx.treeCursor = -1
-				if len(ctx.scope) <= 1 {
-					ctx.searchActive = false
-					ctx.filtered = nil
+			ctx.Query = ctx.Query[:i]
+			ctx.Cursor = len(ctx.Query)
+			if len(ctx.Query) == 0 {
+				ctx.QueryExpanded = make(map[int]bool)
+				ctx.TreeCursor = -1
+				if len(ctx.Scope) <= 1 {
+					ctx.SearchActive = false
+					ctx.Filtered = nil
 				} else {
-					filterItems(s, cfg, searchCols)
+					core.FilterItems(s, cfg, searchCols)
 				}
 			} else {
-				filterItems(s, cfg, searchCols)
-				updateQueryExpansion(s)
-				syncTreeCursorToTopMatch(s)
+				core.FilterItems(s, cfg, searchCols)
+				core.UpdateQueryExpansion(s)
+				core.SyncTreeCursorToTopMatch(s)
 			}
 		}
 		return ""
 
 	case tcell.KeyRune:
-		ctx.navMode = false
+		ctx.NavMode = false
 
 		// Space on a folder → enter it
 		if ch == ' ' {
-			visible := treeVisibleItems(s)
-			if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) {
-				row := visible[ctx.treeCursor]
-				if row.item.HasChildren {
-					pushScope(s, row.itemIdx, cfg, searchCols)
+			visible := core.TreeVisibleItems(s)
+			if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
+				row := visible[ctx.TreeCursor]
+				if row.Item.HasChildren {
+					core.PushScope(s, row.ItemIdx, cfg, searchCols)
 					return ""
 				}
 			}
@@ -525,11 +377,11 @@ func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []
 		}
 
 		// Append character
-		ctx.query = append(ctx.query, ch)
-		ctx.cursor = len(ctx.query)
-		filterItems(s, cfg, searchCols)
-		updateQueryExpansion(s)
-		syncTreeCursorToTopMatch(s)
+		ctx.Query = append(ctx.Query, ch)
+		ctx.Cursor = len(ctx.Query)
+		core.FilterItems(s, cfg, searchCols)
+		core.UpdateQueryExpansion(s)
+		core.SyncTreeCursorToTopMatch(s)
 		return ""
 	}
 
@@ -540,17 +392,17 @@ func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []
 
 // drawUnified renders the prompt bar and tree. The tree is the single
 // navigation surface — no separate results section.
-// Within this function, ctx.navMode affects ONLY the prompt icon.
+// Within this function, ctx.NavMode affects ONLY the prompt icon.
 // All other rendering is mode-independent.
-func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
-	ctx := s.topCtx()
+func drawUnified(c Canvas, s *core.State, cfg Config, w, startY, h int) {
+	ctx := s.TopCtx()
 
 	borderOffset := 0
 	y := startY
 
 	if cfg.Border {
 		versionStr := ""
-		if s.showVersion {
+		if s.ShowVersion {
 			versionStr = Version
 		}
 		drawBorderTopWithTitle(c, w, y, cfg.Title, cfg.TitlePos, versionStr, cfg.Label)
@@ -558,8 +410,8 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 		borderOffset = 1
 	}
 
-	hasQuery := len(ctx.query) > 0
-	visible := treeVisibleItems(s)
+	hasQuery := len(ctx.Query) > 0
+	visible := core.TreeVisibleItems(s)
 
 	// Prompt bar — bordered input field, the primary UI element
 	promptBg := tcell.ColorValid + 236 // 256-color: #303030, subtle surface
@@ -568,7 +420,7 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 	// Mode indicator: search (magnifying glass) vs nav (arrow) — always shown
 	var promptIcon rune
 	var promptIconStyle tcell.Style
-	if ctx.navMode {
+	if ctx.NavMode {
 		promptIcon = '\uF0A9'  //
 		promptIconStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkCyan).Background(promptBg)
 	} else {
@@ -601,21 +453,21 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 
 	// Context breadcrumb — ':' when in a pushed context (command mode)
 	scopeLen := 0
-	if len(s.contexts) > 1 && ctx.promptIcon != 0 {
+	if len(s.Contexts) > 1 && ctx.PromptIcon != 0 {
 		lockedStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(promptBg)
-		c.SetContent(tx+scopeLen, y, ctx.promptIcon, nil, lockedStyle)
+		c.SetContent(tx+scopeLen, y, ctx.PromptIcon, nil, lockedStyle)
 		scopeLen++
 		c.SetContent(tx+scopeLen, y, ' ', nil, tcell.StyleDefault.Background(promptBg))
 		scopeLen++
 	}
 
 	// Scope breadcrumb — just the word greyed out with a space after it.
-	if len(ctx.scope) > 1 {
+	if len(ctx.Scope) > 1 {
 		lockedStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(promptBg)
-		for si := 1; si < len(ctx.scope); si++ {
-			level := ctx.scope[si]
-			if level.parentIdx >= 0 && level.parentIdx < len(ctx.allItems) {
-				name := ctx.allItems[level.parentIdx].Fields[0]
+		for si := 1; si < len(ctx.Scope); si++ {
+			level := ctx.Scope[si]
+			if level.ParentIdx >= 0 && level.ParentIdx < len(ctx.AllItems) {
+				name := ctx.AllItems[level.ParentIdx].Fields[0]
 				drawText(c, tx+scopeLen, y, name, lockedStyle, pw-promptLen-scopeLen)
 				scopeLen += len([]rune(name))
 				c.SetContent(tx+scopeLen, y, ' ', nil, lockedStyle)
@@ -631,20 +483,20 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 
 	if hasQuery {
 		queryStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(promptBg)
-		drawText(c, contentX, y, string(ctx.query), queryStyle, contentW)
-		c.ShowCursor(contentX+ctx.cursor, y)
+		drawText(c, contentX, y, string(ctx.Query), queryStyle, contentW)
+		c.ShowCursor(contentX+ctx.Cursor, y)
 
 		// Ghost autocomplete text: show remaining chars of top match if query is a prefix
-		if ctx.cursor == len(ctx.query) && len(ctx.filtered) > 0 && len(ctx.filtered[0].Fields) > 0 {
-			name := ctx.filtered[0].Fields[0]
+		if ctx.Cursor == len(ctx.Query) && len(ctx.Filtered) > 0 && len(ctx.Filtered[0].Fields) > 0 {
+			name := ctx.Filtered[0].Fields[0]
 			nameRunes := []rune(name)
-			if len(nameRunes) > len(ctx.query) && strings.EqualFold(string(nameRunes[:len(ctx.query)]), string(ctx.query)) {
-				ghost := string(nameRunes[len(ctx.query):])
+			if len(nameRunes) > len(ctx.Query) && strings.EqualFold(string(nameRunes[:len(ctx.Query)]), string(ctx.Query)) {
+				ghost := string(nameRunes[len(ctx.Query):])
 				ghostStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(promptBg)
-				drawText(c, contentX+len(ctx.query), y, ghost, ghostStyle, contentW-len(ctx.query))
+				drawText(c, contentX+len(ctx.Query), y, ghost, ghostStyle, contentW-len(ctx.Query))
 			}
 		}
-	} else if ctx.searchActive || len(ctx.scope) > 1 {
+	} else if ctx.SearchActive || len(ctx.Scope) > 1 {
 		hintStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Italic(true).Background(promptBg)
 		drawText(c, qx, y, "search\u2026", hintStyle, pw-promptLen-scopeLen)
 		c.ShowCursor(qx, y)
@@ -664,11 +516,11 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 	y++
 
 	// Headers
-	if len(ctx.headers) > 0 {
+	if len(ctx.Headers) > 0 {
 		hdrStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan).Bold(true)
 		x := borderOffset + 2
-		for fi, hdr := range ctx.headers[0].Fields {
-			colW := ctx.nameColWidth + ctx.colGap
+		for fi, hdr := range ctx.Headers[0].Fields {
+			colW := ctx.NameColWidth + ctx.ColGap
 			if fi > 0 {
 				if cfg.Tiered {
 					x += 2
@@ -693,31 +545,31 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 
 	// When query active, find top match in tree for highlighting
 	topMatchIdx := -1
-	if hasQuery && len(ctx.filtered) > 0 {
-		topMatchIdx = findInAll(ctx.allItems, ctx.filtered[0])
+	if hasQuery && len(ctx.Filtered) > 0 {
+		topMatchIdx = core.FindInAll(ctx.AllItems, ctx.Filtered[0])
 	}
 
 	// Scroll tree to keep cursor visible
-	if ctx.treeCursor >= 0 {
-		if ctx.treeCursor < ctx.treeOffset {
-			ctx.treeOffset = ctx.treeCursor
+	if ctx.TreeCursor >= 0 {
+		if ctx.TreeCursor < ctx.TreeOffset {
+			ctx.TreeOffset = ctx.TreeCursor
 		}
-		if ctx.treeCursor >= ctx.treeOffset+treeSpace {
-			ctx.treeOffset = ctx.treeCursor - treeSpace + 1
+		if ctx.TreeCursor >= ctx.TreeOffset+treeSpace {
+			ctx.TreeOffset = ctx.TreeCursor - treeSpace + 1
 		}
 	}
-	if ctx.treeOffset < 0 {
-		ctx.treeOffset = 0
+	if ctx.TreeOffset < 0 {
+		ctx.TreeOffset = 0
 	}
 
 	for i := 0; i < treeSpace; i++ {
-		vi := ctx.treeOffset + i
+		vi := ctx.TreeOffset + i
 		if vi >= len(visible) {
 			break
 		}
 		row := visible[vi]
-		isSelected := vi == ctx.treeCursor
-		isTopMatch := hasQuery && row.itemIdx == topMatchIdx && !isSelected
+		isSelected := vi == ctx.TreeCursor
+		isTopMatch := hasQuery && row.ItemIdx == topMatchIdx && !isSelected
 		drawTreeRow(c, row, isSelected, isTopMatch, ctx, cfg, borderOffset, y+i, w)
 	}
 
@@ -728,7 +580,7 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 }
 
 // drawTreeRow renders a single tree item row.
-func drawTreeRow(c Canvas, row treeRow, isSelected, isTopMatch bool, ctx *treeContext, cfg Config, borderOffset, y, w int) {
+func drawTreeRow(c Canvas, row core.TreeRow, isSelected, isTopMatch bool, ctx *core.TreeContext, cfg Config, borderOffset, y, w int) {
 	// Fill background
 	if isSelected || isTopMatch {
 		bg := tcell.StyleDefault.Background(tcell.ColorDarkBlue)
@@ -754,7 +606,7 @@ func drawTreeRow(c Canvas, row treeRow, isSelected, isTopMatch bool, ctx *treeCo
 	x += 2
 
 	// Indentation
-	indent := row.item.Depth * 2
+	indent := row.Item.Depth * 2
 	for i := 0; i < indent; i++ {
 		style := tcell.StyleDefault
 		if hasBg {
@@ -767,7 +619,7 @@ func drawTreeRow(c Canvas, row treeRow, isSelected, isTopMatch bool, ctx *treeCo
 	// Icon
 	var iconRune rune
 	var iconStyle tcell.Style
-	if row.item.HasChildren {
+	if row.Item.HasChildren {
 		iconRune = '\U000F024B'
 		iconStyle = tcell.StyleDefault.Foreground(tcell.ColorYellow).Bold(true)
 	} else {
@@ -788,11 +640,11 @@ func drawTreeRow(c Canvas, row treeRow, isSelected, isTopMatch bool, ctx *treeCo
 
 	// Name
 	name := ""
-	if len(row.item.Fields) > 0 {
-		name = row.item.Fields[0]
+	if len(row.Item.Fields) > 0 {
+		name = row.Item.Fields[0]
 	}
 	var nameStyle tcell.Style
-	if row.item.HasChildren {
+	if row.Item.HasChildren {
 		nameStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkCyan).Bold(true)
 	} else if isSelected {
 		nameStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite)
@@ -803,23 +655,23 @@ func drawTreeRow(c Canvas, row treeRow, isSelected, isTopMatch bool, ctx *treeCo
 		nameStyle = nameStyle.Background(tcell.ColorDarkBlue)
 	}
 
-	nameWidth := ctx.nameColWidth + ctx.colGap - indent
+	nameWidth := ctx.NameColWidth + ctx.ColGap - indent
 	nameRunes := []rune(name)
 	if nameWidth < len(nameRunes)+1 {
 		nameWidth = len(nameRunes) + 1
 	}
 
 	// Highlight matched characters for top match
-	if isTopMatch && len(row.item.MatchIndices) > 0 && len(row.item.MatchIndices[0]) > 0 {
-		drawHighlightedText(c, x, y, name, nameStyle, nameWidth, row.item.MatchIndices[0], hasBg)
+	if isTopMatch && len(row.Item.MatchIndices) > 0 && len(row.Item.MatchIndices[0]) > 0 {
+		drawHighlightedText(c, x, y, name, nameStyle, nameWidth, row.Item.MatchIndices[0], hasBg)
 	} else {
 		drawText(c, x, y, name, nameStyle, nameWidth)
 	}
 	x += nameWidth
 
 	// Description
-	if len(row.item.Fields) > 1 {
-		desc := row.item.Fields[1]
+	if len(row.Item.Fields) > 1 {
+		desc := row.Item.Fields[1]
 		descStyle := tcell.StyleDefault
 		if hasBg {
 			descStyle = descStyle.Background(tcell.ColorDarkBlue)
@@ -855,37 +707,37 @@ func drawHighlightedText(c Canvas, x, y int, text string, baseStyle tcell.Style,
 }
 
 // clickUnifiedRow handles a click on a visual row in the unified view.
-func clickUnifiedRow(s *state, row int, cfg Config, h int) string {
-	ctx := s.topCtx()
+func clickUnifiedRow(s *core.State, row int, cfg Config, h int) string {
+	ctx := s.TopCtx()
 	borderOffset := 0
 	if cfg.Border {
 		borderOffset = 1
 	}
 
 	firstItemRow := borderOffset + 3 // prompt bar (top border + content + bottom border)
-	if len(ctx.headers) > 0 {
+	if len(ctx.Headers) > 0 {
 		firstItemRow += 2 // header + divider
 	}
 
-	visible := treeVisibleItems(s)
+	visible := core.TreeVisibleItems(s)
 	itemRow := row - firstItemRow
 
 	if itemRow < 0 {
 		return ""
 	}
 
-	vi := ctx.treeOffset + itemRow
+	vi := ctx.TreeOffset + itemRow
 	if vi >= len(visible) {
 		return ""
 	}
-	ctx.treeCursor = vi
+	ctx.TreeCursor = vi
 	tr := visible[vi]
-	if tr.item.HasChildren {
-		ctx.treeExpanded[tr.itemIdx] = !ctx.treeExpanded[tr.itemIdx]
+	if tr.Item.HasChildren {
+		ctx.TreeExpanded[tr.ItemIdx] = !ctx.TreeExpanded[tr.ItemIdx]
 		return ""
 	}
-	if ctx.onLeafSelect != nil {
-		return ctx.onLeafSelect(tr.item)
+	if ctx.OnLeafSelect != nil {
+		return ctx.OnLeafSelect(tr.Item)
 	}
-	return "select:" + formatOutput(tr.item, cfg)
+	return "select:" + formatOutput(tr.Item, cfg)
 }

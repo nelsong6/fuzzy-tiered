@@ -1,51 +1,51 @@
 package tui
 
-import "github.com/nelsong6/fzt/internal/model"
+import "github.com/nelsong6/fzt/core"
 
 // buildCommandItems creates tree items for the command palette.
-func buildCommandItems(s *state) []model.Item {
-	var items []model.Item
+func buildCommandItems(s *core.State) []core.Item {
+	var items []core.Item
 
 	// "version" folder with on/off children (indices 0, 1, 2)
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:      []string{"version", "Show/hide version in title bar"},
 		Depth:       0,
 		HasChildren: true,
 		ParentIdx:   -1,
 		Children:    []int{1, 2},
 	})
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:    []string{"on", "Show version"},
 		Depth:     1,
 		ParentIdx: 0,
 	})
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:    []string{"off", "Hide version"},
 		Depth:     1,
 		ParentIdx: 0,
 	})
 
 	// "update" leaf (index 3)
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:    []string{"update", "Update fzt to latest release"},
 		Depth:     0,
 		ParentIdx: -1,
 	})
 
 	// "tree edit" folder with clipboard commands (indices 4, 5, 6)
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:      []string{"tree edit", "Copy/paste bookmark tree as YAML"},
 		Depth:       0,
 		HasChildren: true,
 		ParentIdx:   -1,
 		Children:    []int{5, 6},
 	})
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:    []string{"copy yaml", "Copy bookmark tree to clipboard"},
 		Depth:     1,
 		ParentIdx: 4,
 	})
-	items = append(items, model.Item{
+	items = append(items, core.Item{
 		Fields:    []string{"paste yaml", "Save clipboard YAML as bookmarks"},
 		Depth:     1,
 		ParentIdx: 4,
@@ -55,7 +55,7 @@ func buildCommandItems(s *state) []model.Item {
 }
 
 // newCommandContext creates a treeContext for the command palette.
-func newCommandContext(s *state) treeContext {
+func newCommandContext(s *core.State) core.TreeContext {
 	cmdItems := buildCommandItems(s)
 
 	// Compute nameColWidth for command items
@@ -69,19 +69,19 @@ func newCommandContext(s *state) treeContext {
 		}
 	}
 
-	ctx := treeContext{
-		allItems:      cmdItems,
-		items:         cmdItems,
-		nameColWidth:  nameColW,
-		colGap:        2,
-		index:         -1,
-		treeExpanded:  make(map[int]bool),
-		queryExpanded: make(map[int]bool),
-		treeCursor:    -1,
-		scope:         []scopeLevel{{parentIdx: -1}},
-		kind:          contextCommand,
-		promptIcon:    ':',
-		onLeafSelect: func(item model.Item) string {
+	ctx := core.TreeContext{
+		AllItems:      cmdItems,
+		Items:         cmdItems,
+		NameColWidth:  nameColW,
+		ColGap:        2,
+		Index:         -1,
+		TreeExpanded:  make(map[int]bool),
+		QueryExpanded: make(map[int]bool),
+		TreeCursor:    -1,
+		Scope:         []core.ScopeLevel{{ParentIdx: -1}},
+		Kind:          core.ContextCommand,
+		PromptIcon:    ':',
+		OnLeafSelect: func(item core.Item) string {
 			if len(item.Fields) == 0 {
 				return ""
 			}
@@ -89,9 +89,9 @@ func newCommandContext(s *state) treeContext {
 			var action string
 			switch name {
 			case "on":
-				s.showVersion = true
+				s.ShowVersion = true
 			case "off":
-				s.showVersion = false
+				s.ShowVersion = false
 			case "update":
 				action = "update"
 			case "copy yaml":
@@ -99,7 +99,7 @@ func newCommandContext(s *state) treeContext {
 			case "paste yaml":
 				action = "paste-yaml"
 			}
-			popContext(s)
+			s.PopContext()
 			return action
 		},
 	}

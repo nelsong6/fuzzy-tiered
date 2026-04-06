@@ -10,209 +10,13 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzt/internal/column"
-	"github.com/nelsong6/fzt/internal/model"
-	"github.com/nelsong6/fzt/internal/scorer"
+	"github.com/nelsong6/fzt/core"
 )
 
-// Config holds all TUI options derived from CLI flags.
-type Config struct {
-	Layout       string // "reverse" or "default"
-	Border       bool
-	HeaderLines  int
-	Nth          []int // 1-based field indices for search scope
-	AcceptNth    []int // 1-based field indices for output
-	Prompt       string
-	Delimiter    string
-	Tiered       bool
-	DepthPenalty int
-	SearchCols   []int // 1-based, overrides Nth for scoring
-	Height       int   // percentage of terminal height (0 = full)
-	ShowScores   bool   // annotate filter output with scores
-	ANSI         bool   // preserve ANSI colors from input
-	Title        string // title displayed at the top of the finder
-	TitlePos     string // title position: "left", "center", "right"
-	TreeMode     bool   // start in tree view mode
-	Label        string // optional label rendered on top-left border
-}
+// Config is an alias for core.Config so existing callers keep compiling.
+type Config = core.Config
 
-type scopeLevel struct {
-	parentIdx   int // index into allItems (-1 for root)
-	query       []rune
-	cursor      int
-	index       int
-	offset      int
-	wasExpanded bool // true if folder was already expanded before pushScope
-}
-
-type contextKind int
-
-const (
-	contextNormal  contextKind = iota
-	contextCommand
-)
-
-// treeContext holds all dataset, query, and tree navigation state for one
-// level of the context stack. The root context is the main data; a command
-// context is pushed on top when : is pressed.
-type treeContext struct {
-	// Dataset
-	allItems     []model.Item
-	items        []model.Item
-	filtered     []model.Item
-	headers      []model.Item
-	widths       []int
-	nameColWidth int
-	colGap       int
-
-	// Query
-	query  []rune
-	cursor int
-
-	// Flat-mode selection
-	index  int // selected item index in filtered list
-	offset int // scroll offset
-
-	// Tree navigation
-	treeExpanded  map[int]bool
-	treeCursor    int
-	treeOffset    int
-	searchActive  bool
-	navMode       bool
-	queryExpanded map[int]bool
-
-	// Scope (within this context)
-	scope []scopeLevel
-
-	// Context identity
-	kind         contextKind
-	onLeafSelect func(item model.Item) string
-	promptIcon   rune // 0 = default (search/nav), ':' for commands
-}
-
-type state struct {
-	contexts    []treeContext
-	cancelled   bool
-	showVersion bool
-}
-
-func (s *state) topCtx() *treeContext { return &s.contexts[len(s.contexts)-1] }
-
-func pushContext(s *state, ctx treeContext) {
-	s.contexts = append(s.contexts, ctx)
-}
-
-func popContext(s *state) {
-	if len(s.contexts) <= 1 {
-		return
-	}
-	s.contexts = s.contexts[:len(s.contexts)-1]
-}
-
-func initState(items []model.Item, cfg Config) (*state, []int) {
-	var headers []model.Item
-	data := items
-	if cfg.HeaderLines > 0 && cfg.HeaderLines <= len(items) {
-		headers = items[:cfg.HeaderLines]
-		data = items[cfg.HeaderLines:]
-	}
-
-	allWidths := column.ComputeWidths(items)
-
-	// Compute max name width from data items (not headers)
-	nameColW := 0
-	for _, item := range data {
-		if len(item.Fields) > 0 {
-			w := len([]rune(item.Fields[0]))
-			if w > nameColW {
-				nameColW = w
-			}
-		}
-	}
-
-	rootItems := data
-	if cfg.Tiered {
-		rootItems = rootItemsOf(data)
-	}
-
-	rootCtx := treeContext{
-		allItems:     data,
-		items:        rootItems,
-		headers:      headers,
-		widths:       allWidths,
-		nameColWidth: nameColW,
-		colGap:       2,
-		index:        -1,
-		scope:        []scopeLevel{{parentIdx: -1}},
-		kind:         contextNormal,
-	}
-
-	s := &state{
-		contexts: []treeContext{rootCtx},
-	}
-
-	searchCols := cfg.SearchCols
-	if len(searchCols) == 0 {
-		searchCols = cfg.Nth
-	}
-	filterItems(s, cfg, searchCols)
-
-	return s, searchCols
-}
-
-// findInAll finds the index of an item in allItems by matching Fields[0] and Depth.
-func findInAll(allItems []model.Item, item model.Item) int {
-	for i, ai := range allItems {
-		if ai.Depth == item.Depth && len(ai.Fields) > 0 && len(item.Fields) > 0 && ai.Fields[0] == item.Fields[0] {
-			return i
-		}
-	}
-	return -1
-}
-
-// rootItemsOf returns only depth-0 items.
-func rootItemsOf(items []model.Item) []model.Item {
-	var out []model.Item
-	for _, item := range items {
-		if item.Depth == 0 {
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
-// descendantsOf returns all items under a given parent (or all items if parentIdx is -1).
-func descendantsOf(allItems []model.Item, parentIdx int) []model.Item {
-	if parentIdx < 0 {
-		return allItems
-	}
-	var out []model.Item
-	var collect func(idx int)
-	collect = func(idx int) {
-		for _, childIdx := range allItems[idx].Children {
-			if childIdx < len(allItems) {
-				out = append(out, allItems[childIdx])
-				collect(childIdx)
-			}
-		}
-	}
-	collect(parentIdx)
-	return out
-}
-
-// childrenOf returns the direct children of the item at parentIdx in allItems.
-func childrenOf(allItems []model.Item, parentIdx int) []model.Item {
-	parent := allItems[parentIdx]
-	var out []model.Item
-	for _, childIdx := range parent.Children {
-		if childIdx < len(allItems) {
-			out = append(out, allItems[childIdx])
-		}
-	}
-	return out
-}
-
-func renderFrame(c Canvas, s *state, cfg Config) {
+func renderFrame(c Canvas, s *core.State, cfg Config) {
 	w, h := c.Size()
 
 	usableH := h
@@ -236,7 +40,7 @@ func renderFrame(c Canvas, s *state, cfg Config) {
 }
 
 // Run launches the interactive TUI. Returns the selected item's output string, or "" if cancelled.
-func Run(items []model.Item, cfg Config) (string, error) {
+func Run(items []core.Item, cfg Config) (string, error) {
 	if cfg.Height > 0 && cfg.Height < 100 {
 		return RunInline(items, cfg)
 	}
@@ -257,7 +61,7 @@ func Run(items []model.Item, cfg Config) (string, error) {
 		return runWithSession(screen, items, cfg)
 	}
 
-	s, searchCols := initState(items, cfg)
+	s, searchCols := core.NewState(items, cfg)
 	canvas := &tcellCanvas{screen: screen}
 
 	for {
@@ -282,12 +86,12 @@ func Run(items []model.Item, cfg Config) (string, error) {
 }
 
 // runWithSession renders directly to a tcell screen, supporting tree mode + search switching.
-func runWithSession(screen tcell.Screen, items []model.Item, cfg Config) (string, error) {
-	s, searchCols := initState(items, cfg)
-	ctx := s.topCtx()
-	ctx.treeExpanded = make(map[int]bool)
-	ctx.queryExpanded = make(map[int]bool)
-	ctx.treeCursor = -1
+func runWithSession(screen tcell.Screen, items []core.Item, cfg Config) (string, error) {
+	s, searchCols := core.NewState(items, cfg)
+	ctx := s.TopCtx()
+	ctx.TreeExpanded = make(map[int]bool)
+	ctx.QueryExpanded = make(map[int]bool)
+	ctx.TreeCursor = -1
 
 	canvas := &tcellCanvas{screen: screen}
 
@@ -320,13 +124,13 @@ func runWithSession(screen tcell.Screen, items []model.Item, cfg Config) (string
 // handleUnifiedKey handles all key events in unified tree+search mode.
 // The tree is the single navigation surface. Typing filters and auto-expands
 // the tree to reveal matches. Up/Down always move the tree cursor.
-func handleUnifiedKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
-	ctx := s.topCtx()
+func handleUnifiedKey(s *core.State, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
+	ctx := s.TopCtx()
 
 	// ':' enters command mode — push a command context
 	if key == tcell.KeyRune && ch == ':' {
 		cmdCtx := newCommandContext(s)
-		pushContext(s, cmdCtx)
+		s.PushContext(cmdCtx)
 		return ""
 	}
 
@@ -350,77 +154,77 @@ func handleUnifiedKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols [
 	}
 
 	// Nav mode + Ctrl+U: clean slate — exit nav, clear query, deselect
-	if ctx.navMode && key == tcell.KeyCtrlU {
-		ctx.navMode = false
-		ctx.query = nil
-		ctx.cursor = 0
-		ctx.treeCursor = -1
-		ctx.queryExpanded = make(map[int]bool)
-		if len(ctx.scope) <= 1 {
-			ctx.searchActive = false
-			ctx.filtered = nil
+	if ctx.NavMode && key == tcell.KeyCtrlU {
+		ctx.NavMode = false
+		ctx.Query = nil
+		ctx.Cursor = 0
+		ctx.TreeCursor = -1
+		ctx.QueryExpanded = make(map[int]bool)
+		if len(ctx.Scope) <= 1 {
+			ctx.SearchActive = false
+			ctx.Filtered = nil
 		} else {
-			filterItems(s, cfg, searchCols)
+			core.FilterItems(s, cfg, searchCols)
 		}
 		return ""
 	}
 
 	// Nav mode + Backspace: edit the displayed item name (remove last char)
-	if ctx.navMode && (key == tcell.KeyBackspace || key == tcell.KeyBackspace2) {
-		visible := treeVisibleItems(s)
-		if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) && len(visible[ctx.treeCursor].item.Fields) > 0 {
-			name := []rune(visible[ctx.treeCursor].item.Fields[0])
+	if ctx.NavMode && (key == tcell.KeyBackspace || key == tcell.KeyBackspace2) {
+		visible := core.TreeVisibleItems(s)
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) && len(visible[ctx.TreeCursor].Item.Fields) > 0 {
+			name := []rune(visible[ctx.TreeCursor].Item.Fields[0])
 			if len(name) > 1 {
-				ctx.query = name[:len(name)-1]
-				ctx.cursor = len(ctx.query)
+				ctx.Query = name[:len(name)-1]
+				ctx.Cursor = len(ctx.Query)
 			} else {
-				ctx.query = nil
-				ctx.cursor = 0
+				ctx.Query = nil
+				ctx.Cursor = 0
 			}
 		}
-		ctx.navMode = false
-		if len(ctx.query) > 0 {
-			ctx.searchActive = true
-			filterItems(s, cfg, searchCols)
-			updateQueryExpansion(s)
-			syncTreeCursorToTopMatch(s)
+		ctx.NavMode = false
+		if len(ctx.Query) > 0 {
+			ctx.SearchActive = true
+			core.FilterItems(s, cfg, searchCols)
+			core.UpdateQueryExpansion(s)
+			core.SyncTreeCursorToTopMatch(s)
 		} else {
-			ctx.searchActive = false
-			ctx.filtered = nil
-			ctx.treeCursor = -1
-			ctx.queryExpanded = make(map[int]bool)
+			ctx.SearchActive = false
+			ctx.Filtered = nil
+			ctx.TreeCursor = -1
+			ctx.QueryExpanded = make(map[int]bool)
 		}
 		return ""
 	}
 
 	// When no search active, delegate to tree navigation (except printable chars)
-	if !ctx.searchActive {
+	if !ctx.SearchActive {
 		if key == tcell.KeyRune {
 			if ch == '/' {
 				// Activate search without inserting the /
-				ctx.searchActive = true
-				ctx.navMode = false
+				ctx.SearchActive = true
+				ctx.NavMode = false
 				return ""
 			}
 			// Space on a folder → push scope (same as Enter)
 			if ch == ' ' {
-				visible := treeVisibleItems(s)
-				if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) {
-					row := visible[ctx.treeCursor]
-					if row.item.HasChildren {
-						pushScope(s, row.itemIdx, cfg, searchCols)
+				visible := core.TreeVisibleItems(s)
+				if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
+					row := visible[ctx.TreeCursor]
+					if row.Item.HasChildren {
+						core.PushScope(s, row.ItemIdx, cfg, searchCols)
 						return ""
 					}
 				}
 			}
 			// Printable character → activate search
-			ctx.searchActive = true
-			ctx.navMode = false
-			ctx.query = []rune{ch}
-			ctx.cursor = 1
-			filterItems(s, cfg, searchCols)
-			updateQueryExpansion(s)
-			syncTreeCursorToTopMatch(s)
+			ctx.SearchActive = true
+			ctx.NavMode = false
+			ctx.Query = []rune{ch}
+			ctx.Cursor = 1
+			core.FilterItems(s, cfg, searchCols)
+			core.UpdateQueryExpansion(s)
+			core.SyncTreeCursorToTopMatch(s)
 			return ""
 		}
 		action, _ := handleTreeKey(s, key, ch, cfg, searchCols)
@@ -433,61 +237,61 @@ func handleUnifiedKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols [
 
 // handleKeyEvent processes a single key event against the TUI state (flat mode).
 // Returns "" for normal continuation, "cancel" to quit, or "select:<output>" for leaf selection.
-func handleKeyEvent(s *state, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
-	ctx := s.topCtx()
+func handleKeyEvent(s *core.State, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
+	ctx := s.TopCtx()
 	switch key {
 	case tcell.KeyCtrlC:
-		s.cancelled = true
+		s.Cancelled = true
 		return "cancel"
 
 	case tcell.KeyEscape:
-		if len(ctx.query) > 0 {
-			ctx.query = nil
-			ctx.cursor = 0
-			ctx.offset = 0
-			filterItems(s, cfg, searchCols)
-			if len(ctx.filtered) > 0 {
-				ctx.index = 0
+		if len(ctx.Query) > 0 {
+			ctx.Query = nil
+			ctx.Cursor = 0
+			ctx.Offset = 0
+			core.FilterItems(s, cfg, searchCols)
+			if len(ctx.Filtered) > 0 {
+				ctx.Index = 0
 			} else {
-				ctx.index = -1
+				ctx.Index = -1
 			}
 			return ""
 		}
-		if cfg.Tiered && len(ctx.scope) > 1 {
-			ctx.scope = ctx.scope[:len(ctx.scope)-1]
-			prev := ctx.scope[len(ctx.scope)-1]
-			if prev.parentIdx < 0 {
-				ctx.items = rootItemsOf(ctx.allItems)
+		if cfg.Tiered && len(ctx.Scope) > 1 {
+			ctx.Scope = ctx.Scope[:len(ctx.Scope)-1]
+			prev := ctx.Scope[len(ctx.Scope)-1]
+			if prev.ParentIdx < 0 {
+				ctx.Items = core.RootItemsOf(ctx.AllItems)
 			} else {
-				ctx.items = childrenOf(ctx.allItems, prev.parentIdx)
+				ctx.Items = core.ChildrenOf(ctx.AllItems, prev.ParentIdx)
 			}
-			ctx.query = prev.query
-			ctx.cursor = prev.cursor
-			ctx.index = prev.index
-			ctx.offset = prev.offset
-			filterItems(s, cfg, searchCols)
+			ctx.Query = prev.Query
+			ctx.Cursor = prev.Cursor
+			ctx.Index = prev.Index
+			ctx.Offset = prev.Offset
+			core.FilterItems(s, cfg, searchCols)
 			return ""
 		}
-		s.cancelled = true
+		s.Cancelled = true
 		return "cancel"
 
 	case tcell.KeyEnter:
-		if ctx.index >= 0 && ctx.index < len(ctx.filtered) {
-			selected := ctx.filtered[ctx.index]
+		if ctx.Index >= 0 && ctx.Index < len(ctx.Filtered) {
+			selected := ctx.Filtered[ctx.Index]
 			if selected.HasChildren && cfg.Tiered {
-				parentIdx := findInAll(ctx.allItems, selected)
+				parentIdx := core.FindInAll(ctx.AllItems, selected)
 				if parentIdx >= 0 {
-					ctx.scope[len(ctx.scope)-1].query = ctx.query
-					ctx.scope[len(ctx.scope)-1].cursor = ctx.cursor
-					ctx.scope[len(ctx.scope)-1].index = ctx.index
-					ctx.scope[len(ctx.scope)-1].offset = ctx.offset
-					ctx.scope = append(ctx.scope, scopeLevel{parentIdx: parentIdx})
-					ctx.items = childrenOf(ctx.allItems, parentIdx)
-					ctx.query = nil
-					ctx.cursor = 0
-					ctx.index = -1
-					ctx.offset = 0
-					filterItems(s, cfg, searchCols)
+					ctx.Scope[len(ctx.Scope)-1].Query = ctx.Query
+					ctx.Scope[len(ctx.Scope)-1].Cursor = ctx.Cursor
+					ctx.Scope[len(ctx.Scope)-1].Index = ctx.Index
+					ctx.Scope[len(ctx.Scope)-1].Offset = ctx.Offset
+					ctx.Scope = append(ctx.Scope, core.ScopeLevel{ParentIdx: parentIdx})
+					ctx.Items = core.ChildrenOf(ctx.AllItems, parentIdx)
+					ctx.Query = nil
+					ctx.Cursor = 0
+					ctx.Index = -1
+					ctx.Offset = 0
+					core.FilterItems(s, cfg, searchCols)
 				}
 			} else {
 				return "select:" + formatOutput(selected, cfg)
@@ -495,142 +299,142 @@ func handleKeyEvent(s *state, key tcell.Key, ch rune, cfg Config, searchCols []i
 		}
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		if ctx.cursor > 0 {
-			ctx.query = append(ctx.query[:ctx.cursor-1], ctx.query[ctx.cursor:]...)
-			ctx.cursor--
-			ctx.offset = 0
-			filterItems(s, cfg, searchCols)
-			if len(ctx.filtered) > 0 {
-				ctx.index = 0
+		if ctx.Cursor > 0 {
+			ctx.Query = append(ctx.Query[:ctx.Cursor-1], ctx.Query[ctx.Cursor:]...)
+			ctx.Cursor--
+			ctx.Offset = 0
+			core.FilterItems(s, cfg, searchCols)
+			if len(ctx.Filtered) > 0 {
+				ctx.Index = 0
 			} else {
-				ctx.index = -1
+				ctx.Index = -1
 			}
 		}
 
 	case tcell.KeyDelete:
-		if ctx.cursor < len(ctx.query) {
-			ctx.query = append(ctx.query[:ctx.cursor], ctx.query[ctx.cursor+1:]...)
-			filterItems(s, cfg, searchCols)
+		if ctx.Cursor < len(ctx.Query) {
+			ctx.Query = append(ctx.Query[:ctx.Cursor], ctx.Query[ctx.Cursor+1:]...)
+			core.FilterItems(s, cfg, searchCols)
 		}
 
 	case tcell.KeyLeft:
-		if cfg.Tiered && len(ctx.query) == 0 && len(ctx.scope) > 1 {
-			ctx.scope = ctx.scope[:len(ctx.scope)-1]
-			prev := ctx.scope[len(ctx.scope)-1]
-			if prev.parentIdx < 0 {
-				ctx.items = rootItemsOf(ctx.allItems)
+		if cfg.Tiered && len(ctx.Query) == 0 && len(ctx.Scope) > 1 {
+			ctx.Scope = ctx.Scope[:len(ctx.Scope)-1]
+			prev := ctx.Scope[len(ctx.Scope)-1]
+			if prev.ParentIdx < 0 {
+				ctx.Items = core.RootItemsOf(ctx.AllItems)
 			} else {
-				ctx.items = childrenOf(ctx.allItems, prev.parentIdx)
+				ctx.Items = core.ChildrenOf(ctx.AllItems, prev.ParentIdx)
 			}
-			ctx.query = prev.query
-			ctx.cursor = prev.cursor
-			ctx.index = prev.index
-			ctx.offset = prev.offset
-			filterItems(s, cfg, searchCols)
-		} else if ctx.index >= 0 {
-			ctx.index = -1
-		} else if ctx.cursor > 0 {
-			ctx.cursor--
+			ctx.Query = prev.Query
+			ctx.Cursor = prev.Cursor
+			ctx.Index = prev.Index
+			ctx.Offset = prev.Offset
+			core.FilterItems(s, cfg, searchCols)
+		} else if ctx.Index >= 0 {
+			ctx.Index = -1
+		} else if ctx.Cursor > 0 {
+			ctx.Cursor--
 		}
 
 	case tcell.KeyRight:
-		if ctx.index >= 0 && cfg.Tiered && len(ctx.query) == 0 && len(ctx.filtered) > 0 && ctx.filtered[ctx.index].HasChildren {
-			selected := ctx.filtered[ctx.index]
-			parentIdx := findInAll(ctx.allItems, selected)
+		if ctx.Index >= 0 && cfg.Tiered && len(ctx.Query) == 0 && len(ctx.Filtered) > 0 && ctx.Filtered[ctx.Index].HasChildren {
+			selected := ctx.Filtered[ctx.Index]
+			parentIdx := core.FindInAll(ctx.AllItems, selected)
 			if parentIdx >= 0 {
-				ctx.scope[len(ctx.scope)-1].query = ctx.query
-				ctx.scope[len(ctx.scope)-1].cursor = ctx.cursor
-				ctx.scope[len(ctx.scope)-1].index = ctx.index
-				ctx.scope[len(ctx.scope)-1].offset = ctx.offset
-				ctx.scope = append(ctx.scope, scopeLevel{parentIdx: parentIdx})
-				ctx.items = childrenOf(ctx.allItems, parentIdx)
-				ctx.query = nil
-				ctx.cursor = 0
-				ctx.index = -1
-				ctx.offset = 0
-				filterItems(s, cfg, searchCols)
+				ctx.Scope[len(ctx.Scope)-1].Query = ctx.Query
+				ctx.Scope[len(ctx.Scope)-1].Cursor = ctx.Cursor
+				ctx.Scope[len(ctx.Scope)-1].Index = ctx.Index
+				ctx.Scope[len(ctx.Scope)-1].Offset = ctx.Offset
+				ctx.Scope = append(ctx.Scope, core.ScopeLevel{ParentIdx: parentIdx})
+				ctx.Items = core.ChildrenOf(ctx.AllItems, parentIdx)
+				ctx.Query = nil
+				ctx.Cursor = 0
+				ctx.Index = -1
+				ctx.Offset = 0
+				core.FilterItems(s, cfg, searchCols)
 			}
-		} else if ctx.index == -1 && ctx.cursor < len(ctx.query) {
-			ctx.cursor++
+		} else if ctx.Index == -1 && ctx.Cursor < len(ctx.Query) {
+			ctx.Cursor++
 		}
 
 	case tcell.KeyTab:
-		if len(ctx.filtered) > 0 {
-			if ctx.index < len(ctx.filtered)-1 {
-				ctx.index++
+		if len(ctx.Filtered) > 0 {
+			if ctx.Index < len(ctx.Filtered)-1 {
+				ctx.Index++
 			} else {
-				ctx.index = -1
+				ctx.Index = -1
 			}
 		}
 
 	case tcell.KeyBacktab:
-		if len(ctx.filtered) > 0 {
-			if ctx.index == -1 {
-				ctx.index = len(ctx.filtered) - 1
-			} else if ctx.index > 0 {
-				ctx.index--
+		if len(ctx.Filtered) > 0 {
+			if ctx.Index == -1 {
+				ctx.Index = len(ctx.Filtered) - 1
+			} else if ctx.Index > 0 {
+				ctx.Index--
 			} else {
-				ctx.index = -1
+				ctx.Index = -1
 			}
 		}
 
 	case tcell.KeyUp, tcell.KeyCtrlP:
-		if ctx.index > 0 {
-			ctx.index--
-		} else if ctx.index == 0 {
-			ctx.index = -1
+		if ctx.Index > 0 {
+			ctx.Index--
+		} else if ctx.Index == 0 {
+			ctx.Index = -1
 		}
 
 	case tcell.KeyDown, tcell.KeyCtrlN:
-		if ctx.index < len(ctx.filtered)-1 {
-			ctx.index++
+		if ctx.Index < len(ctx.Filtered)-1 {
+			ctx.Index++
 		}
 
 	case tcell.KeyCtrlA:
-		ctx.cursor = 0
+		ctx.Cursor = 0
 
 	case tcell.KeyCtrlE:
-		ctx.cursor = len(ctx.query)
+		ctx.Cursor = len(ctx.Query)
 
 	case tcell.KeyCtrlU:
-		ctx.query = ctx.query[ctx.cursor:]
-		ctx.cursor = 0
-		ctx.offset = 0
-		filterItems(s, cfg, searchCols)
-		if len(ctx.filtered) > 0 {
-			ctx.index = 0
+		ctx.Query = ctx.Query[ctx.Cursor:]
+		ctx.Cursor = 0
+		ctx.Offset = 0
+		core.FilterItems(s, cfg, searchCols)
+		if len(ctx.Filtered) > 0 {
+			ctx.Index = 0
 		} else {
-			ctx.index = -1
+			ctx.Index = -1
 		}
 
 	case tcell.KeyCtrlW:
-		if ctx.cursor > 0 {
-			end := ctx.cursor
-			for ctx.cursor > 0 && ctx.query[ctx.cursor-1] == ' ' {
-				ctx.cursor--
+		if ctx.Cursor > 0 {
+			end := ctx.Cursor
+			for ctx.Cursor > 0 && ctx.Query[ctx.Cursor-1] == ' ' {
+				ctx.Cursor--
 			}
-			for ctx.cursor > 0 && ctx.query[ctx.cursor-1] != ' ' {
-				ctx.cursor--
+			for ctx.Cursor > 0 && ctx.Query[ctx.Cursor-1] != ' ' {
+				ctx.Cursor--
 			}
-			ctx.query = append(ctx.query[:ctx.cursor], ctx.query[end:]...)
-			ctx.offset = 0
-			filterItems(s, cfg, searchCols)
-			if len(ctx.filtered) > 0 {
-				ctx.index = 0
+			ctx.Query = append(ctx.Query[:ctx.Cursor], ctx.Query[end:]...)
+			ctx.Offset = 0
+			core.FilterItems(s, cfg, searchCols)
+			if len(ctx.Filtered) > 0 {
+				ctx.Index = 0
 			} else {
-				ctx.index = -1
+				ctx.Index = -1
 			}
 		}
 
 	case tcell.KeyRune:
-		ctx.query = append(ctx.query[:ctx.cursor], append([]rune{ch}, ctx.query[ctx.cursor:]...)...)
-		ctx.cursor++
-		ctx.offset = 0
-		filterItems(s, cfg, searchCols)
-		if len(ctx.filtered) > 0 {
-			ctx.index = 0
+		ctx.Query = append(ctx.Query[:ctx.Cursor], append([]rune{ch}, ctx.Query[ctx.Cursor:]...)...)
+		ctx.Cursor++
+		ctx.Offset = 0
+		core.FilterItems(s, cfg, searchCols)
+		if len(ctx.Filtered) > 0 {
+			ctx.Index = 0
 		} else {
-			ctx.index = -1
+			ctx.Index = -1
 		}
 	}
 
@@ -702,14 +506,14 @@ func parseSimQuery(query string) []simKey {
 	return keys
 }
 
-func Simulate(items []model.Item, cfg Config, query string, w, h int, styled bool) []Frame {
-	s, searchCols := initState(items, cfg)
+func Simulate(items []core.Item, cfg Config, query string, w, h int, styled bool) []Frame {
+	s, searchCols := core.NewState(items, cfg)
 
 	if cfg.TreeMode {
-		ctx := s.topCtx()
-		ctx.treeExpanded = make(map[int]bool)
-		ctx.queryExpanded = make(map[int]bool)
-		ctx.treeCursor = -1
+		ctx := s.TopCtx()
+		ctx.TreeExpanded = make(map[int]bool)
+		ctx.QueryExpanded = make(map[int]bool)
+		ctx.TreeCursor = -1
 	}
 
 	var frames []Frame
@@ -739,7 +543,7 @@ func Simulate(items []model.Item, cfg Config, query string, w, h int, styled boo
 			handleKeyEvent(s, sk.key, sk.ch, cfg, searchCols)
 		}
 
-		label := fmt.Sprintf("key: %s  query: \"%s\"", sk.label, string(s.topCtx().query))
+		label := fmt.Sprintf("key: %s  query: \"%s\"", sk.label, string(s.TopCtx().Query))
 		frames = append(frames, Frame{Label: label, Content: renderOne()})
 	}
 
@@ -763,87 +567,7 @@ func FormatFrames(frames []Frame) string {
 	return b.String()
 }
 
-// getAncestorNames walks up ParentIdx to collect parent folder names.
-func getAncestorNames(allItems []model.Item, item model.Item) []string {
-	var names []string
-	idx := item.ParentIdx
-	seen := make(map[int]bool)
-	for idx >= 0 && idx < len(allItems) && !seen[idx] {
-		seen[idx] = true
-		parent := allItems[idx]
-		if len(parent.Fields) > 0 {
-			names = append(names, parent.Fields[0])
-		}
-		idx = parent.ParentIdx
-	}
-	return names
-}
-
-func filterItems(s *state, cfg Config, searchCols []int) {
-	ctx := s.topCtx()
-	query := string(ctx.query)
-	if query == "" {
-		if cfg.Tiered {
-			// Show only the current scope's direct items
-			ctx.filtered = make([]model.Item, len(ctx.items))
-			copy(ctx.filtered, ctx.items)
-		} else {
-			ctx.filtered = make([]model.Item, len(ctx.items))
-			copy(ctx.filtered, ctx.items)
-		}
-		return
-	}
-
-	// When searching in tiered mode, search all descendants under current scope
-	searchPool := ctx.items
-	if cfg.Tiered {
-		searchPool = descendantsOf(ctx.allItems, ctx.scope[len(ctx.scope)-1].parentIdx)
-	}
-
-	var matched []model.Item
-	for _, item := range searchPool {
-		ancestors := getAncestorNames(ctx.allItems, item)
-		ts, indices := scorer.ScoreItem(item.Fields, query, searchCols, ancestors)
-		if indices != nil {
-			if cfg.Tiered {
-				relativeDepth := item.Depth
-				if len(ctx.scope) > 1 {
-					scopeDepth := ctx.allItems[ctx.scope[len(ctx.scope)-1].parentIdx].Depth + 1
-					relativeDepth = item.Depth - scopeDepth
-				}
-				ts.Name -= relativeDepth * cfg.DepthPenalty
-			}
-			m := item
-			m.Score = ts
-			m.MatchIndices = indices
-			matched = append(matched, m)
-		}
-	}
-
-	sort.SliceStable(matched, func(i, j int) bool {
-		return matched[j].Score.Less(matched[i].Score)
-	})
-	ctx.filtered = matched
-}
-
-func buildScopePath(s *state) string {
-	ctx := s.topCtx()
-	if len(ctx.scope) <= 1 {
-		return ""
-	}
-	var parts []string
-	for _, level := range ctx.scope[1:] {
-		if level.parentIdx >= 0 && level.parentIdx < len(ctx.allItems) {
-			parts = append(parts, ctx.allItems[level.parentIdx].Fields[0])
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " › ")
-}
-
-func drawItemRow(c Canvas, item model.Item, isSelected bool, isSearching bool, cfg Config, ctx *treeContext, borderOffset, y, w int) {
+func drawItemRow(c Canvas, item core.Item, isSelected bool, isSearching bool, cfg Config, ctx *core.TreeContext, borderOffset, y, w int) {
 	maxW := w - borderOffset*2
 
 	// Selection highlight
@@ -886,7 +610,7 @@ func drawItemRow(c Canvas, item model.Item, isSelected bool, isSearching bool, c
 		if item.MatchIndices != nil && len(item.MatchIndices) > 0 {
 			indices = item.MatchIndices[0]
 		}
-		var sr []model.StyledRune
+		var sr []core.StyledRune
 		if item.StyledFields != nil && len(item.StyledFields) > 0 {
 			sr = item.StyledFields[0]
 		}
@@ -897,7 +621,7 @@ func drawItemRow(c Canvas, item model.Item, isSelected bool, isSearching bool, c
 		x = drawFieldText(c, x, y, name, sr, indices, nameStyle, isSelected, maxW)
 		// Pad name to fixed column width + gap
 		padStyle := nameStyle
-		targetX := startX + ctx.nameColWidth + ctx.colGap
+		targetX := startX + ctx.NameColWidth + ctx.ColGap
 		for x < targetX && x < maxW+borderOffset {
 			c.SetContent(x, y, ' ', nil, padStyle)
 			x++
@@ -934,7 +658,7 @@ func drawItemRow(c Canvas, item model.Item, isSelected bool, isSearching bool, c
 		if item.MatchIndices != nil && len(item.MatchIndices) > 1 {
 			indices = item.MatchIndices[1]
 		}
-		var sr []model.StyledRune
+		var sr []core.StyledRune
 		if item.StyledFields != nil && len(item.StyledFields) > 1 {
 			sr = item.StyledFields[1]
 		}
@@ -961,14 +685,14 @@ func drawItemRow(c Canvas, item model.Item, isSelected bool, isSearching bool, c
 
 }
 
-func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
-	ctx := s.topCtx()
+func drawReverse(c Canvas, s *core.State, cfg Config, w, startY, h int) {
+	ctx := s.TopCtx()
 	y := startY
 
 	borderOffset := 0
 	if cfg.Border {
 		versionStr := ""
-		if s.showVersion {
+		if s.ShowVersion {
 			versionStr = Version
 		}
 		drawBorderTopWithTitle(c, w, y, cfg.Title, cfg.TitlePos, versionStr, cfg.Label)
@@ -982,17 +706,17 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 	}
 	promptLen := len([]rune(promptStr))
 
-	if len(ctx.query) > 0 {
+	if len(ctx.Query) > 0 {
 		// Typing: show query with cursor
 		promptStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Bold(true)
 		drawText(c, borderOffset, y, promptStr, promptStyle, w-borderOffset*2)
-		drawText(c, promptLen+borderOffset, y, string(ctx.query), tcell.StyleDefault, w-promptLen-borderOffset*2)
-		c.ShowCursor(promptLen+ctx.cursor+borderOffset, y)
-	} else if ctx.index >= 0 && ctx.index < len(ctx.filtered) {
+		drawText(c, promptLen+borderOffset, y, string(ctx.Query), tcell.StyleDefault, w-promptLen-borderOffset*2)
+		c.ShowCursor(promptLen+ctx.Cursor+borderOffset, y)
+	} else if ctx.Index >= 0 && ctx.Index < len(ctx.Filtered) {
 		// No query, item selected — show item name as preview, dim prompt
 		dimPrompt := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 		drawText(c, borderOffset, y, promptStr, dimPrompt, w-borderOffset*2)
-		previewText := ctx.filtered[ctx.index].Fields[0]
+		previewText := ctx.Filtered[ctx.Index].Fields[0]
 		drawText(c, promptLen+borderOffset, y, previewText, tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Italic(true), w-promptLen-borderOffset*2)
 		c.HideCursor()
 	} else {
@@ -1003,7 +727,7 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 	y++
 
 	// Breadcrumb trail
-	scopePath := buildScopePath(s)
+	scopePath := core.BuildScopePath(s)
 	if scopePath != "" {
 		bcStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan)
 		sepStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
@@ -1014,13 +738,13 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 	}
 	y++
 
-	for _, hdr := range ctx.headers {
+	for _, hdr := range ctx.Headers {
 		hdrStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan).Bold(true)
 		hx := borderOffset + 2
 		// Name header
 		if len(hdr.Fields) > 0 {
 			drawText(c, hx, y, hdr.Fields[0], hdrStyle, w-borderOffset*2-2)
-			hx += ctx.nameColWidth + ctx.colGap
+			hx += ctx.NameColWidth + ctx.ColGap
 		}
 		// Skip icon column width if tiered (icon + buffer = 2)
 		if cfg.Tiered {
@@ -1034,7 +758,7 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 	}
 
 	// Divider line between header and items
-	if len(ctx.headers) > 0 {
+	if len(ctx.Headers) > 0 {
 		divStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 		for dx := borderOffset + 1; dx < w-borderOffset-1; dx++ {
 			c.SetContent(dx, y, '─', nil, divStyle)
@@ -1050,23 +774,23 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 		itemLines = 0
 	}
 
-	if ctx.index >= 0 {
-		if ctx.index < ctx.offset {
-			ctx.offset = ctx.index
+	if ctx.Index >= 0 {
+		if ctx.Index < ctx.Offset {
+			ctx.Offset = ctx.Index
 		}
-		if ctx.index >= ctx.offset+itemLines {
-			ctx.offset = ctx.index - itemLines + 1
+		if ctx.Index >= ctx.Offset+itemLines {
+			ctx.Offset = ctx.Index - itemLines + 1
 		}
 	} else {
-		ctx.offset = 0
+		ctx.Offset = 0
 	}
 
-	isSearching := len(ctx.query) > 0
+	isSearching := len(ctx.Query) > 0
 
-	for i := 0; i < itemLines && i+ctx.offset < len(ctx.filtered); i++ {
-		idx := i + ctx.offset
-		item := ctx.filtered[idx]
-		isSelected := idx == ctx.index
+	for i := 0; i < itemLines && i+ctx.Offset < len(ctx.Filtered); i++ {
+		idx := i + ctx.Offset
+		item := ctx.Filtered[idx]
+		isSelected := idx == ctx.Index
 		drawItemRow(c, item, isSelected, isSearching, cfg, ctx, borderOffset, y+i, w)
 	}
 
@@ -1076,14 +800,14 @@ func drawReverse(c Canvas, s *state, cfg Config, w, startY, h int) {
 	}
 }
 
-func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
-	ctx := s.topCtx()
+func drawDefault(c Canvas, s *core.State, cfg Config, w, startY, h int) {
+	ctx := s.TopCtx()
 	y := startY
 
 	borderOffset := 0
 	if cfg.Border {
 		versionStr := ""
-		if s.showVersion {
+		if s.ShowVersion {
 			versionStr = Version
 		}
 		drawBorderTopWithTitle(c, w, y, cfg.Title, cfg.TitlePos, versionStr, cfg.Label)
@@ -1091,13 +815,13 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 		borderOffset = 1
 	}
 
-	for _, hdr := range ctx.headers {
+	for _, hdr := range ctx.Headers {
 		hdrStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan).Bold(true)
 		hx := borderOffset + 2
 		// Name header
 		if len(hdr.Fields) > 0 {
 			drawText(c, hx, y, hdr.Fields[0], hdrStyle, w-borderOffset*2-2)
-			hx += ctx.nameColWidth + ctx.colGap
+			hx += ctx.NameColWidth + ctx.ColGap
 		}
 		// Skip icon column width if tiered (icon + buffer = 2)
 		if cfg.Tiered {
@@ -1111,7 +835,7 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 	}
 
 	// Divider line between header and items
-	if len(ctx.headers) > 0 {
+	if len(ctx.Headers) > 0 {
 		divStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 		for dx := borderOffset + 1; dx < w-borderOffset-1; dx++ {
 			c.SetContent(dx, y, '─', nil, divStyle)
@@ -1128,23 +852,23 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 		itemLines = 0
 	}
 
-	if ctx.index >= 0 {
-		if ctx.index < ctx.offset {
-			ctx.offset = ctx.index
+	if ctx.Index >= 0 {
+		if ctx.Index < ctx.Offset {
+			ctx.Offset = ctx.Index
 		}
-		if ctx.index >= ctx.offset+itemLines {
-			ctx.offset = ctx.index - itemLines + 1
+		if ctx.Index >= ctx.Offset+itemLines {
+			ctx.Offset = ctx.Index - itemLines + 1
 		}
 	} else {
-		ctx.offset = 0
+		ctx.Offset = 0
 	}
 
-	isSearching := len(ctx.query) > 0
+	isSearching := len(ctx.Query) > 0
 
-	for i := 0; i < itemLines && i+ctx.offset < len(ctx.filtered); i++ {
-		idx := i + ctx.offset
-		item := ctx.filtered[idx]
-		isSelected := idx == ctx.index
+	for i := 0; i < itemLines && i+ctx.Offset < len(ctx.Filtered); i++ {
+		idx := i + ctx.Offset
+		item := ctx.Filtered[idx]
+		isSelected := idx == ctx.Index
 		drawItemRow(c, item, isSelected, isSearching, cfg, ctx, borderOffset, y+i, w)
 	}
 
@@ -1153,7 +877,7 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 		bottomY--
 	}
 
-	scopePath := buildScopePath(s)
+	scopePath := core.BuildScopePath(s)
 	if scopePath != "" {
 		bcStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan)
 		sepStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
@@ -1169,15 +893,15 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 	}
 	promptLen := len([]rune(promptStr))
 
-	if len(ctx.query) > 0 {
+	if len(ctx.Query) > 0 {
 		promptStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Bold(true)
 		drawText(c, borderOffset, bottomY+1, promptStr, promptStyle, w-borderOffset*2)
-		drawText(c, promptLen+borderOffset, bottomY+1, string(ctx.query), tcell.StyleDefault, w-promptLen-borderOffset*2)
-		c.ShowCursor(promptLen+ctx.cursor+borderOffset, bottomY+1)
-	} else if ctx.index >= 0 && ctx.index < len(ctx.filtered) {
+		drawText(c, promptLen+borderOffset, bottomY+1, string(ctx.Query), tcell.StyleDefault, w-promptLen-borderOffset*2)
+		c.ShowCursor(promptLen+ctx.Cursor+borderOffset, bottomY+1)
+	} else if ctx.Index >= 0 && ctx.Index < len(ctx.Filtered) {
 		dimPrompt := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 		drawText(c, borderOffset, bottomY+1, promptStr, dimPrompt, w-borderOffset*2)
-		previewText := ctx.filtered[ctx.index].Fields[0]
+		previewText := ctx.Filtered[ctx.Index].Fields[0]
 		drawText(c, promptLen+borderOffset, bottomY+1, previewText, tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Italic(true), w-promptLen-borderOffset*2)
 		c.HideCursor()
 	} else {
@@ -1193,7 +917,7 @@ func drawDefault(c Canvas, s *state, cfg Config, w, startY, h int) {
 }
 
 // drawFieldText draws text with optional ANSI styles and match highlighting. No column padding.
-func drawFieldText(c Canvas, x, y int, field string, styledRunes []model.StyledRune, indices []int, baseStyle tcell.Style, isSelected bool, maxW int) int {
+func drawFieldText(c Canvas, x, y int, field string, styledRunes []core.StyledRune, indices []int, baseStyle tcell.Style, isSelected bool, maxW int) int {
 	runes := []rune(field)
 	indexSet := make(map[int]bool)
 	for _, idx := range indices {
@@ -1226,7 +950,7 @@ func drawFieldText(c Canvas, x, y int, field string, styledRunes []model.StyledR
 	return x
 }
 
-func drawHighlightedField(c Canvas, x, y int, field string, styledRunes []model.StyledRune, indices []int, baseStyle tcell.Style, isSelected bool, widths []int, fieldIdx, gap, maxW int) int {
+func drawHighlightedField(c Canvas, x, y int, field string, styledRunes []core.StyledRune, indices []int, baseStyle tcell.Style, isSelected bool, widths []int, fieldIdx, gap, maxW int) int {
 	runes := []rune(field)
 	indexSet := make(map[int]bool)
 	for _, idx := range indices {
@@ -1383,7 +1107,7 @@ func drawBorderSides(c Canvas, w, topY, bottomY int) {
 	}
 }
 
-func formatOutput(item model.Item, cfg Config) string {
+func formatOutput(item core.Item, cfg Config) string {
 	if len(cfg.AcceptNth) > 0 {
 		// Use clean fields for output (ANSI stripped) so downstream consumers get plain text
 		var parts []string
@@ -1469,16 +1193,16 @@ func RunUpdate() {
 }
 
 // RunFilter runs in non-interactive mode (like fzf --filter).
-func RunFilter(items []model.Item, query string, cfg Config) {
+func RunFilter(items []core.Item, query string, cfg Config) {
 	searchCols := cfg.SearchCols
 	if len(searchCols) == 0 {
 		searchCols = cfg.Nth
 	}
 
-	var matched []model.Item
+	var matched []core.Item
 	for _, item := range items {
-		ancestors := getAncestorNames(items, item)
-		ts, indices := scorer.ScoreItem(item.Fields, query, searchCols, ancestors)
+		ancestors := core.GetAncestorNames(items, item)
+		ts, indices := core.ScoreItem(item.Fields, query, searchCols, ancestors)
 		if indices != nil {
 			if cfg.Tiered {
 				ts.Name -= item.Depth * cfg.DepthPenalty

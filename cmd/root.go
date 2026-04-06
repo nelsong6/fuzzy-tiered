@@ -7,10 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nelsong6/fzt/internal/column"
-	"github.com/nelsong6/fzt/internal/model"
+	"github.com/nelsong6/fzt/core"
 	"github.com/nelsong6/fzt/internal/tui"
-	"github.com/nelsong6/fzt/internal/yamlsrc"
 	"github.com/spf13/cobra"
 )
 
@@ -100,12 +98,12 @@ func run(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var items []model.Item
+	var items []core.Item
 
 	if flagYAML != "" {
 		// YAML mode: load from file, auto-enable tiered scoring
 		var err error
-		items, err = yamlsrc.Load(flagYAML)
+		items, err = core.LoadYAML(flagYAML)
 		if err != nil {
 			return fmt.Errorf("loading yaml: %w", err)
 		}
@@ -114,8 +112,8 @@ func run(cmd *cobra.Command, args []string) error {
 		// Inject header if provided
 		if flagHeader != "" {
 			headerFields := strings.Split(flagHeader, flagDelimiter)
-			headerItem := model.Item{Fields: headerFields, Depth: -1}
-			items = append([]model.Item{headerItem}, items...)
+			headerItem := core.Item{Fields: headerFields, Depth: -1}
+			items = append([]core.Item{headerItem}, items...)
 			if flagHeaderLines == 0 {
 				flagHeaderLines = 1
 			}
@@ -137,7 +135,7 @@ func run(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		items = column.ParseLines(lines, flagDelimiter, flagTiered, flagANSI)
+		items = core.ParseLines(lines, flagDelimiter, flagTiered, flagANSI)
 	}
 
 	// Build config

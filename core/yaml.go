@@ -1,68 +1,67 @@
-package yamlsrc
+package core
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/nelsong6/fzt/internal/model"
 	"gopkg.in/yaml.v3"
 )
 
-// Entry represents a single node in the YAML tree.
+// YAMLEntry represents a single node in the YAML tree.
 // Children can be either inline entries or a file path string.
-type Entry struct {
+type YAMLEntry struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description,omitempty"`
 	URL         string      `yaml:"url,omitempty"`
-	Children    interface{} `yaml:"children,omitempty"` // []Entry or string (file path)
+	Children    interface{} `yaml:"children,omitempty"` // []YAMLEntry or string (file path)
 }
 
-// LoadFromString parses YAML content directly without file I/O.
+// LoadYAMLFromString parses YAML content directly without file I/O.
 // File-reference children (children: "path/to/file.yaml") are not supported
 // and will return an error.
-func LoadFromString(content string) ([]model.Item, error) {
-	var entries []Entry
+func LoadYAMLFromString(content string) ([]Item, error) {
+	var entries []YAMLEntry
 	if err := yaml.Unmarshal([]byte(content), &entries); err != nil {
 		return nil, fmt.Errorf("parsing YAML: %w", err)
 	}
-	var items []model.Item
-	if err := flatten(entries, "", 0, -1, "", &items); err != nil {
+	var items []Item
+	if err := flattenYAML(entries, "", 0, -1, "", &items); err != nil {
 		return nil, err
 	}
 	return items, nil
 }
 
-// Load reads a YAML file and recursively resolves file pointers,
-// returning a flat list of model.Items with depth, parent, and children indices.
-func Load(path string) ([]model.Item, error) {
-	entries, err := readFile(path)
+// LoadYAML reads a YAML file and recursively resolves file pointers,
+// returning a flat list of Items with depth, parent, and children indices.
+func LoadYAML(path string) ([]Item, error) {
+	entries, err := readYAMLFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("loading %s: %w", path, err)
 	}
 
 	baseDir := filepath.Dir(path)
-	var items []model.Item
-	if err := flatten(entries, baseDir, 0, -1, "", &items); err != nil {
+	var items []Item
+	if err := flattenYAML(entries, baseDir, 0, -1, "", &items); err != nil {
 		return nil, err
 	}
 	return items, nil
 }
 
-func readFile(path string) ([]Entry, error) {
+func readYAMLFile(path string) ([]YAMLEntry, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var entries []Entry
+	var entries []YAMLEntry
 	if err := yaml.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	return entries, nil
 }
 
-func flatten(entries []Entry, baseDir string, depth int, parentIdx int, parentPath string, items *[]model.Item) error {
+func flattenYAML(entries []YAMLEntry, baseDir string, depth int, parentIdx int, parentPath string, items *[]Item) error {
 	for _, e := range entries {
 		fields := []string{e.Name}
 		if e.Description != "" {
@@ -77,7 +76,7 @@ func flatten(entries []Entry, baseDir string, depth int, parentIdx int, parentPa
 			path = parentPath + " › " + e.Name
 		}
 
-		*items = append(*items, model.Item{
+		*items = append(*items, Item{
 			Fields:      fields,
 			Depth:       depth,
 			ParentIdx:   parentIdx,
@@ -101,21 +100,21 @@ func flatten(entries []Entry, baseDir string, depth int, parentIdx int, parentPa
 			if !filepath.IsAbs(childPath) {
 				childPath = filepath.Join(baseDir, childPath)
 			}
-			childEntries, err := readFile(childPath)
+			childEntries, err := readYAMLFile(childPath)
 			if err != nil {
 				return fmt.Errorf("resolving children for %q: %w", e.Name, err)
 			}
 			childBaseDir := filepath.Dir(childPath)
-			if err := flatten(childEntries, childBaseDir, depth+1, myIdx, path, items); err != nil {
+			if err := flattenYAML(childEntries, childBaseDir, depth+1, myIdx, path, items); err != nil {
 				return err
 			}
 
 		case []interface{}:
-			inlineEntries, err := parseInlineChildren(children)
+			inlineEntries, err := parseInlineYAMLChildren(children)
 			if err != nil {
 				return fmt.Errorf("parsing inline children for %q: %w", e.Name, err)
 			}
-			if err := flatten(inlineEntries, baseDir, depth+1, myIdx, path, items); err != nil {
+			if err := flattenYAML(inlineEntries, baseDir, depth+1, myIdx, path, items); err != nil {
 				return err
 			}
 		}
@@ -123,12 +122,12 @@ func flatten(entries []Entry, baseDir string, depth int, parentIdx int, parentPa
 	return nil
 }
 
-func parseInlineChildren(raw []interface{}) ([]Entry, error) {
+func parseInlineYAMLChildren(raw []interface{}) ([]YAMLEntry, error) {
 	data, err := yaml.Marshal(raw)
 	if err != nil {
 		return nil, err
 	}
-	var entries []Entry
+	var entries []YAMLEntry
 	if err := yaml.Unmarshal(data, &entries); err != nil {
 		return nil, err
 	}

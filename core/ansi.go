@@ -1,4 +1,4 @@
-package column
+package core
 
 import (
 	"regexp"
@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzt/internal/model"
 )
 
 // ansiPattern matches ANSI CSI sequences like \x1b[38;5;229m or \x1b[0m.
@@ -19,8 +18,8 @@ func StripANSI(s string) string {
 
 // ParseANSI parses a string containing ANSI escape codes into a slice of styled runes.
 // Each rune carries the tcell style that was active at its position.
-func ParseANSI(s string) []model.StyledRune {
-	var result []model.StyledRune
+func ParseANSI(s string) []StyledRune {
+	var result []StyledRune
 	style := tcell.StyleDefault
 
 	runes := []rune(s)
@@ -60,7 +59,7 @@ func ParseANSI(s string) []model.StyledRune {
 			continue
 		}
 
-		result = append(result, model.StyledRune{Char: runes[i], Style: style})
+		result = append(result, StyledRune{Char: runes[i], Style: style})
 		i++
 	}
 	return result

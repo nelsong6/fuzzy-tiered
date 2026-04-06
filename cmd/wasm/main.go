@@ -7,13 +7,12 @@ import (
 	"syscall/js"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzt/internal/model"
+	"github.com/nelsong6/fzt/core"
 	"github.com/nelsong6/fzt/internal/tui"
-	"github.com/nelsong6/fzt/internal/yamlsrc"
 )
 
 var (
-	currentItems []model.Item
+	currentItems []core.Item
 	session      *tui.Session
 )
 
@@ -54,7 +53,7 @@ func loadYAML(this js.Value, args []js.Value) interface{} {
 	if len(args) < 1 {
 		return jsError("loadYAML requires a YAML string argument")
 	}
-	items, err := yamlsrc.LoadFromString(args[0].String())
+	items, err := core.LoadYAMLFromString(args[0].String())
 	if err != nil {
 		return jsError(err.Error())
 	}
@@ -76,8 +75,8 @@ func initSession(this js.Value, args []js.Value) interface{} {
 		return jsError("no items loaded — call loadYAML first")
 	}
 
-	headerItem := model.Item{Fields: []string{"Name", "Description"}, Depth: -1}
-	items := append([]model.Item{headerItem}, currentItems...)
+	headerItem := core.Item{Fields: []string{"Name", "Description"}, Depth: -1}
+	items := append([]core.Item{headerItem}, currentItems...)
 
 	cfg := tui.Config{
 		Layout:       "reverse",

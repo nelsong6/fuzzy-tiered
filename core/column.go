@@ -1,16 +1,14 @@
-package column
+package core
 
 import (
 	"strings"
-
-	"github.com/nelsong6/fzt/internal/model"
 )
 
 // ParseLines splits raw input lines by delimiter into Items.
 // If tiered is true, the first field is parsed as the depth integer.
 // If ansi is true, ANSI codes are parsed into StyledFields for colored rendering.
-func ParseLines(lines []string, delimiter string, tiered bool, ansi bool) []model.Item {
-	items := make([]model.Item, 0, len(lines))
+func ParseLines(lines []string, delimiter string, tiered bool, ansi bool) []Item {
+	items := make([]Item, 0, len(lines))
 	for _, line := range lines {
 		item := parseLine(line, delimiter, tiered, ansi)
 		items = append(items, item)
@@ -18,7 +16,7 @@ func ParseLines(lines []string, delimiter string, tiered bool, ansi bool) []mode
 	return items
 }
 
-func parseLine(line, delimiter string, tiered bool, ansi bool) model.Item {
+func parseLine(line, delimiter string, tiered bool, ansi bool) Item {
 	cleanLine := StripANSI(line)
 	cleanParts := strings.Split(cleanLine, delimiter)
 	displayParts := strings.Split(line, delimiter)
@@ -37,7 +35,7 @@ func parseLine(line, delimiter string, tiered bool, ansi bool) model.Item {
 		displayParts = displayParts[1:]
 	}
 
-	item := model.Item{
+	item := Item{
 		Fields:        cleanParts,
 		DisplayFields: displayParts,
 		Depth:         depth,
@@ -46,7 +44,7 @@ func parseLine(line, delimiter string, tiered bool, ansi bool) model.Item {
 	}
 
 	if ansi {
-		item.StyledFields = make([][]model.StyledRune, len(displayParts))
+		item.StyledFields = make([][]StyledRune, len(displayParts))
 		for i, dp := range displayParts {
 			item.StyledFields[i] = ParseANSI(dp)
 		}
@@ -57,7 +55,7 @@ func parseLine(line, delimiter string, tiered bool, ansi bool) model.Item {
 
 // ComputeWidths calculates the max width per column across all items.
 // Uses the clean (ANSI-stripped) Fields for accurate width calculation.
-func ComputeWidths(items []model.Item) []int {
+func ComputeWidths(items []Item) []int {
 	maxCols := 0
 	for _, item := range items {
 		if len(item.Fields) > maxCols {

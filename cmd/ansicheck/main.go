@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/nelsong6/fzt/internal/column"
+	"github.com/nelsong6/fzt/core"
 )
 
 func main() {
@@ -12,7 +12,7 @@ func main() {
 
 	fmt.Printf("Input bytes: %x\n", []byte(input))
 
-	stripped := column.StripANSI(input)
+	stripped := core.StripANSI(input)
 	fmt.Printf("Stripped: %q\n", stripped)
 	fmt.Printf("Stripped bytes: %x\n", []byte(stripped))
 
@@ -23,7 +23,7 @@ func main() {
 	}
 	fmt.Println()
 
-	styled := column.ParseANSI(input)
+	styled := core.ParseANSI(input)
 	fmt.Printf("ParseANSI runes: ")
 	for _, sr := range styled {
 		fmt.Printf("U+%04X ", sr.Char)

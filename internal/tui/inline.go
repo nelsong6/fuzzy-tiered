@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nelsong6/fzt/internal/model"
+	"github.com/nelsong6/fzt/core"
 )
 
 // RunInline renders the TUI inline in the main terminal buffer (no alternate screen).
 // Used when --height is specified. The picker occupies only the requested percentage
 // of the terminal, preserving scrollback above.
-func RunInline(items []model.Item, cfg Config) (string, error) {
+func RunInline(items []core.Item, cfg Config) (string, error) {
 	rt, err := openRawTerminal()
 	if err != nil {
 		return "", fmt.Errorf("opening terminal: %w", err)
@@ -44,15 +44,15 @@ func RunInline(items []model.Item, cfg Config) (string, error) {
 	inlineCfg := cfg
 	inlineCfg.Height = 0
 
-	s, searchCols := initState(items, inlineCfg)
+	s, searchCols := core.NewState(items, inlineCfg)
 
 	// Initialize tree state if tree mode
 	if inlineCfg.TreeMode {
-		ctx := s.topCtx()
-		ctx.treeExpanded = make(map[int]bool)
-		ctx.queryExpanded = make(map[int]bool)
-		ctx.treeCursor = -1
-		ctx.treeOffset = 0
+		ctx := s.TopCtx()
+		ctx.TreeExpanded = make(map[int]bool)
+		ctx.QueryExpanded = make(map[int]bool)
+		ctx.TreeCursor = -1
+		ctx.TreeOffset = 0
 	}
 
 	// Track cursor row relative to top of reserved region so we can
