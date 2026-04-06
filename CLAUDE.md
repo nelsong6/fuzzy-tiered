@@ -5,7 +5,7 @@
 fzt (fuzzy tiered) is an fzf-compatible fuzzy finder with two additions: depth-aware tiered scoring and first-class column support. Written in Go. Full-screen mode uses tcell; inline mode (`--height`) renders directly with ANSI escapes.
 
 Repo: `D:\repos\fzt`
-Binary: `fzt.exe` (built to repo root, on PATH via Profile 1's `profile.ps1`)
+Binary: `~/bin/fzt.exe` (on PATH via Profile 1's `profile.ps1`). Update with `fzt --update` or `:update` from the command palette.
 
 ## Building
 
@@ -69,7 +69,11 @@ Both fzt-showcase and my-homepage download these at deploy time via `gh release 
 
 ### Future: Extensible command menu
 
-The `:` command palette currently has hardcoded commands (version, tree edit). A planned enhancement would let consumers register app-specific commands at init time (e.g., "edit", "sync" for my-homepage) via a `commands` option or `fzt.addCommands()` WASM API. These would appear alongside the built-in commands and return action strings to JS. This would replace the need for app-specific toolbar buttons.
+The `:` command palette currently has hardcoded commands (version, tree edit, update). A planned enhancement would let consumers register app-specific commands at init time (e.g., "edit", "sync" for my-homepage) via a `commands` option or `fzt.addCommands()` WASM API. These would appear alongside the built-in commands and return action strings to JS. This would replace the need for app-specific toolbar buttons.
+
+### Design boundary: command palette vs external menus
+
+The `:` command palette is for **fzt meta/self-management features** — things that manage fzt itself (update, version toggle, settings). These are available on every fzt instance without opt-in. When adding fzt management features, add them here (`internal/tui/commands.go`), not to shell-config at-menu YAML or per-profile shell functions. For CLI, commands can shell out (e.g., `gh release download`). For WASM, unsupported commands should be hidden or no-op gracefully.
 
 ## Tree Mode
 
@@ -106,11 +110,10 @@ Space, Enter, or Tab on a folder pushes a scope level. The folder name appears a
 
 ### Prompt bar anatomy
 
-`[mode icon] [scope breadcrumbs] [context breadcrumbs] [query + ghost | nav preview]`
+`[mode icon] [scope breadcrumbs] [query + ghost | nav preview]`
 
 - **Mode icon**: search () or nav () — switches automatically
 - **Scope breadcrumbs**: locked folders entered via Space/Enter/Tab (dark gray, non-italic)
-- **Context breadcrumbs**: ancestor path of the focused item (dark gray, italic) — transient, updates as the match/cursor changes. Stops at the scope boundary
 - **Query + ghost**: typed text in white, ghost autocomplete in dark gray
 - **Nav preview**: selected item name in italic dark gray (only in nav mode)
 
@@ -183,6 +186,7 @@ New: `--tiered`, `--depth-penalty`, `--search-cols`, `--ansi`, `--title`, `--tit
 - **Shared `fzt-terminal.css`** (`web/fzt-terminal.css`): CRT terminal effects extracted into a shared CSS file shipped as a release asset. Includes scanline overlay, vignette, rounded corners, box shadows, font-smoothing disabled, and cursor blink animation (underline via box-shadow). Consumers override `--fzt-*` CSS custom properties for theming.
 - **Shared `fzt-web.js`** (`web/fzt-web.js`): Higher-level component wrapping `fzt-terminal.js` with sensible defaults — Catppuccin Mocha palette, DOS font stack, `fzt-cursor` class, default cursor position. Consumers import `createFztWeb()` instead of `createFztTerminal()` and only pass overrides. Eliminates palette/font/cursor config duplication between fzt-showcase and my-homepage.
 - **Cursor changed to underline blink**: Replaced opacity-based cursor blink (hides entire character) with box-shadow underline blink (`box-shadow: 0 2px 0`). Character stays visible throughout the blink cycle. Uses `--fzt-fg` CSS variable for color.
+- **Removed context breadcrumbs from prompt bar**: Eliminated the italic dark gray `›`-delimited ancestor path that appeared when a search match lived in a subfolder. The prompt now only has scope breadcrumbs (the greyed-out folder names from pressing Space/Enter). One path rendering, not two — matches should look the same regardless of how you got there. Was introduced in the 2026-04-04 unified tree rewrite but contradicted the principle that scope breadcrumbs are the single navigation indicator.
 
 ### 2026-04-04
 

@@ -635,39 +635,8 @@ func drawUnified(c Canvas, s *state, cfg Config, w, startY, h int) {
 
 	qx := tx + scopeLen // where editable query starts
 
-	// Context breadcrumb — italic path showing where the focused item lives.
-	matchCtxLen := 0
-	focusedItemIdx := -1
-	if ctx.treeCursor >= 0 && ctx.treeCursor < len(visible) {
-		focusedItemIdx = visible[ctx.treeCursor].itemIdx
-	}
-	if focusedItemIdx >= 0 {
-		scopeParent := -1
-		if len(ctx.scope) > 1 {
-			scopeParent = ctx.scope[len(ctx.scope)-1].parentIdx
-		}
-		var ancestors []string
-		idx := ctx.allItems[focusedItemIdx].ParentIdx
-		for idx >= 0 && idx < len(ctx.allItems) && idx != scopeParent {
-			if len(ctx.allItems[idx].Fields) > 0 {
-				ancestors = append([]string{ctx.allItems[idx].Fields[0]}, ancestors...)
-			}
-			idx = ctx.allItems[idx].ParentIdx
-		}
-		if len(ancestors) > 0 {
-			ctxStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Italic(true).Background(promptBg)
-			for _, a := range ancestors {
-				aRunes := []rune(a)
-				drawText(c, qx+matchCtxLen, y, a, ctxStyle, pw-promptLen-scopeLen-matchCtxLen)
-				matchCtxLen += len(aRunes)
-				drawText(c, qx+matchCtxLen, y, " \u203A ", ctxStyle, pw-promptLen-scopeLen-matchCtxLen)
-				matchCtxLen += 3
-			}
-		}
-	}
-
-	contentX := qx + matchCtxLen // where query or nav preview starts
-	contentW := pw - promptLen - scopeLen - matchCtxLen
+	contentX := qx // where query or nav preview starts
+	contentW := pw - promptLen - scopeLen
 
 	if hasQuery {
 		queryStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(promptBg)
