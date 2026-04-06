@@ -1445,14 +1445,24 @@ func RunUpdate() {
 		return
 	}
 
-	// Rename to just 'fzt' (or 'fzt.exe')
+	// Rename to just 'fzt' (or 'fzt.exe').
+	// On Windows the running exe is locked, but renaming it is allowed.
+	// Move the old binary out of the way first, then rename the new one in.
 	final := filepath.Join(dest, "fzt")
 	if goos == "windows" {
 		final += ".exe"
 	}
 	downloaded := filepath.Join(dest, asset)
 	if downloaded != final {
-		os.Rename(downloaded, final)
+		old := final + ".old"
+		os.Remove(old)
+		os.Rename(final, old)
+		if err := os.Rename(downloaded, final); err != nil {
+			fmt.Fprintf(os.Stderr, "Rename failed: %v\n", err)
+			os.Rename(old, final) // restore
+			return
+		}
+		os.Remove(old)
 	}
 
 	fmt.Fprintf(os.Stderr, "Updated: %s → %s\n", current, latest)
