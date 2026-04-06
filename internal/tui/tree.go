@@ -312,12 +312,12 @@ func handleSearchKey(s *state, key tcell.Key, ch rune, cfg Config, searchCols []
 			popScope(s, cfg, searchCols)
 			return ""
 		}
-		// At root with empty query — pop context if stacked, else deactivate search
+		// At root with empty query — pop context if stacked, else exit
 		if len(s.contexts) > 1 {
 			popContext(s)
 			return ""
 		}
-		ctx.searchActive = false
+		return "abort"
 		ctx.filtered = nil
 		ctx.treeCursor = -1
 		ctx.queryExpanded = make(map[int]bool)

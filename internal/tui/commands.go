@@ -25,23 +25,30 @@ func buildCommandItems(s *state) []model.Item {
 		ParentIdx: 0,
 	})
 
-	// "tree edit" folder with clipboard commands (indices 3, 4, 5)
+	// "update" leaf (index 3)
+	items = append(items, model.Item{
+		Fields:    []string{"update", "Update fzt to latest release"},
+		Depth:     0,
+		ParentIdx: -1,
+	})
+
+	// "tree edit" folder with clipboard commands (indices 4, 5, 6)
 	items = append(items, model.Item{
 		Fields:      []string{"tree edit", "Copy/paste bookmark tree as YAML"},
 		Depth:       0,
 		HasChildren: true,
 		ParentIdx:   -1,
-		Children:    []int{4, 5},
+		Children:    []int{5, 6},
 	})
 	items = append(items, model.Item{
 		Fields:    []string{"copy yaml", "Copy bookmark tree to clipboard"},
 		Depth:     1,
-		ParentIdx: 3,
+		ParentIdx: 4,
 	})
 	items = append(items, model.Item{
 		Fields:    []string{"paste yaml", "Save clipboard YAML as bookmarks"},
 		Depth:     1,
-		ParentIdx: 3,
+		ParentIdx: 4,
 	})
 
 	return items
@@ -85,6 +92,8 @@ func newCommandContext(s *state) treeContext {
 				s.showVersion = true
 			case "off":
 				s.showVersion = false
+			case "update":
+				action = "update"
 			case "copy yaml":
 				action = "copy-yaml"
 			case "paste yaml":

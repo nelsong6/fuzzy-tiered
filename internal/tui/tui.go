@@ -3,6 +3,9 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -299,8 +302,12 @@ func runWithSession(screen tcell.Screen, items []model.Item, cfg Config) (string
 		case *tcell.EventKey:
 			action := handleUnifiedKey(s, ev.Key(), ev.Rune(), cfg, searchCols)
 			switch {
-			case action == "cancel":
+			case action == "cancel" || action == "abort":
 				return "", nil
+			case action == "update":
+				screen.Fini()
+				runSelfUpdate()
+				os.Exit(0)
 			case len(action) > 7 && action[:7] == "select:":
 				return action[7:], nil
 			}
@@ -1393,6 +1400,44 @@ func formatOutput(item model.Item, cfg Config) string {
 		return item.Original
 	}
 	return strings.Join(item.Fields, "\t")
+}
+
+// runSelfUpdate downloads the latest fzt release from GitHub and replaces the current binary.
+func runSelfUpdate() {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	asset := fmt.Sprintf("fzt-%s-%s", goos, goarch)
+	if goos == "windows" {
+		asset += ".exe"
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot determine executable path: %v\n", err)
+		return
+	}
+	dest := filepath.Dir(self)
+
+	fmt.Printf("Downloading latest %s...\n", asset)
+	cmd := exec.Command("gh", "release", "download", "--repo", "nelsong6/fzt", "--pattern", asset, "--dir", dest, "--clobber")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		return
+	}
+
+	// Rename to just 'fzt' (or 'fzt.exe')
+	final := filepath.Join(dest, "fzt")
+	if goos == "windows" {
+		final += ".exe"
+	}
+	downloaded := filepath.Join(dest, asset)
+	if downloaded != final {
+		os.Rename(downloaded, final)
+	}
+
+	fmt.Printf("Updated: %s\n", final)
 }
 
 // RunFilter runs in non-interactive mode (like fzf --filter).
