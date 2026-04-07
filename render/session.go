@@ -52,7 +52,6 @@ func NewSession(items []core.Item, cfg core.Config, w, h int, drawFlat DrawFunc)
 // drawTree is the rendering callback for tree mode; drawFlat is used for flat mode fallback.
 func NewTreeSession(items []core.Item, cfg core.Config, w, h int, drawTree DrawTreeFunc, drawFlat DrawFunc) *Session {
 	s, searchCols := core.NewState(items, cfg)
-	core.InjectCommandFolder(s, Version)
 	ctx := s.TopCtx()
 	ctx.Index = -1
 	ctx.TreeExpanded = make(map[int]bool)
@@ -120,73 +119,6 @@ func (sess *Session) ClickRow(row int) (SessionFrame, string) {
 // SetLabel sets the border label displayed on the top-left of the border.
 func (sess *Session) SetLabel(label string) {
 	sess.cfg.Label = label
-}
-
-// SetFrontendCommands registers frontend-specific commands for the `:` palette.
-// Must be called before the first Render, since InjectCommandFolder runs at session creation.
-// If called after, re-injects the command folder.
-func (sess *Session) SetFrontendCommands(commands []core.CommandItem) {
-	sess.state.FrontendCommands = commands
-	// Re-inject command folder to pick up new commands
-	// (remove old `:` folder first, then re-inject)
-	reInjectCommands(sess)
-}
-
-// SetFrontendInfo sets the frontend name and version for the ctl title.
-func (sess *Session) SetFrontendInfo(name, version string) {
-	sess.state.FrontendName = name
-	sess.state.FrontendVersion = version
-	reInjectCommands(sess)
-}
-
-// reInjectCommands removes any existing `:` command folder from AllItems
-// and re-injects it with current state.
-func reInjectCommands(sess *Session) {
-	ctx := sess.state.TopCtx()
-	// Find and remove the `:` root folder and all its descendants
-	var cleanItems []core.Item
-	removeSet := make(map[int]bool)
-	for i, item := range ctx.AllItems {
-		if item.Depth == 0 && len(item.Fields) > 0 && item.Fields[0] == ":" && item.HasChildren {
-			removeSet[i] = true
-			markDescendants(ctx.AllItems, i, removeSet)
-		}
-	}
-	// Rebuild without removed items, fixing indices
-	indexMap := make(map[int]int) // old index -> new index
-	for i, item := range ctx.AllItems {
-		if removeSet[i] {
-			continue
-		}
-		indexMap[i] = len(cleanItems)
-		cleanItems = append(cleanItems, item)
-	}
-	// Fix parent/children references
-	for i := range cleanItems {
-		if cleanItems[i].ParentIdx >= 0 {
-			if newIdx, ok := indexMap[cleanItems[i].ParentIdx]; ok {
-				cleanItems[i].ParentIdx = newIdx
-			}
-		}
-		var newChildren []int
-		for _, childIdx := range cleanItems[i].Children {
-			if newIdx, ok := indexMap[childIdx]; ok {
-				newChildren = append(newChildren, newIdx)
-			}
-		}
-		cleanItems[i].Children = newChildren
-	}
-	ctx.AllItems = cleanItems
-	core.InjectCommandFolder(sess.state, Version)
-}
-
-func markDescendants(items []core.Item, idx int, set map[int]bool) {
-	for _, childIdx := range items[idx].Children {
-		if childIdx < len(items) {
-			set[childIdx] = true
-			markDescendants(items, childIdx, set)
-		}
-	}
 }
 
 // SelectedURL returns the URL of the currently selected item, if any.
@@ -334,9 +266,6 @@ func (sess *Session) GetUIState() UIState {
 	visible := core.TreeVisibleItems(sess.state)
 
 	title := sess.cfg.Title
-	if ctlTitle := core.ScopeCtlTitle(sess.state); ctlTitle != "" {
-		title = ctlTitle
-	}
 
 	version := ""
 	if sess.state.ShowVersion {

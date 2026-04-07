@@ -392,9 +392,6 @@ func HandleTreeKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []in
 				PushScope(s, row.ItemIdx, cfg, searchCols)
 				return "", false
 			}
-			if IsInCommandScope(s) {
-				return HandleCommandAction(s, row.Item), false
-			}
 			return "select:" + FormatOutput(row.Item, cfg), false
 		}
 		return "", false
@@ -558,9 +555,6 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 				PushScope(s, row.ItemIdx, cfg, searchCols)
 				return ""
 			}
-			if IsInCommandScope(s) {
-				return HandleCommandAction(s, row.Item)
-			}
 			return "select:" + FormatOutput(row.Item, cfg)
 		}
 		// No cursor -- act on top match
@@ -572,9 +566,6 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 					PushScope(s, idx, cfg, searchCols)
 				}
 				return ""
-			}
-			if IsInCommandScope(s) {
-				return HandleCommandAction(s, selected)
 			}
 			return "select:" + FormatOutput(selected, cfg)
 		}
@@ -761,51 +752,6 @@ func ClickUnifiedRow(s *State, row int, cfg Config, h int) string {
 		ctx.TreeExpanded[tr.ItemIdx] = !ctx.TreeExpanded[tr.ItemIdx]
 		return ""
 	}
-	if IsInCommandScope(s) {
-		return HandleCommandAction(s, tr.Item)
-	}
 	return "select:" + FormatOutput(tr.Item, cfg)
 }
 
-// HandleCommandAction processes a selected leaf item in the command tree.
-// Returns an action string for the frontend, or "" if handled internally.
-func HandleCommandAction(s *State, item Item) string {
-	if len(item.Fields) == 0 {
-		return ""
-	}
-	name := item.Fields[0]
-
-	// Core commands
-	switch name {
-	case "on":
-		s.ShowVersion = true
-		return ""
-	case "off":
-		s.ShowVersion = false
-		return ""
-	case "update":
-		return "update"
-	}
-
-	// Frontend commands -- match by name, return action
-	for _, cmd := range s.FrontendCommands {
-		if cmd.Name == name {
-			return cmd.Action
-		}
-	}
-
-	return ""
-}
-
-// IsInCommandScope returns true if the current scope is inside a `:` folder.
-func IsInCommandScope(s *State) bool {
-	ctx := s.TopCtx()
-	for _, level := range ctx.Scope[1:] {
-		if level.ParentIdx >= 0 && level.ParentIdx < len(ctx.AllItems) {
-			if len(ctx.AllItems[level.ParentIdx].Fields) > 0 && ctx.AllItems[level.ParentIdx].Fields[0] == ":" {
-				return true
-			}
-		}
-	}
-	return false
-}

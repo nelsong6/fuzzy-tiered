@@ -2,7 +2,6 @@ package render
 
 import (
 	"github.com/gdamore/tcell/v2"
-	"github.com/nelsong6/fzt/core"
 )
 
 // Canvas is the drawing target abstraction. Both tcell.Screen and the
@@ -110,8 +109,8 @@ func (m *MemScreen) StyledSnapshot() string {
 			ch := m.Grid[y][x]
 			style := m.Styles[y][x]
 			fg, bg, attrs := style.Decompose()
-			isHL := fg == core.HighlightFg && attrs&tcell.AttrBold != 0
-			isSel := bg == core.SelectionBg
+			isHL := fg == tcell.ColorGreen && attrs&tcell.AttrBold != 0
+			isSel := bg == tcell.ColorDarkBlue
 
 			if isHL && isSel {
 				line = append(line, '[', '*', ']')

@@ -32,9 +32,9 @@ func ExpandToPath(s *State, targetPath string, cfg Config, searchCols []int) {
 
 		// Load children if needed (lazy provider)
 		if len(ctx.AllItems[childIdx].Children) == 0 && s.Provider != nil {
-			path := itemFullPath(ctx, childIdx)
+			path := ItemFullPath(ctx, childIdx)
 			newItems := s.Provider.LoadChildren(path)
-			spliceChildren(ctx, childIdx, newItems)
+			SpliceChildren(ctx, childIdx, newItems)
 		}
 
 		// Expand the folder
