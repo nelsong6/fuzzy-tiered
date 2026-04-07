@@ -73,7 +73,8 @@ type CommandItem struct {
 type State struct {
 	Contexts         []TreeContext
 	Cancelled        bool
-	ShowVersion      bool
+	ShowVersion      bool   // deprecated: use VersionDisplay
+	VersionDisplay   string // version string shown in border (empty = hidden)
 	Provider         TreeProvider  // optional: loads children on demand for lazy tree modes
 	FrontendCommands []CommandItem // populated by ecosystem layer
 	FrontendName     string        // populated by ecosystem layer
