@@ -61,12 +61,23 @@ type TreeContext struct {
 	PromptIcon   rune // 0 = default (search/nav), ':' for commands
 }
 
+// CommandItem describes a frontend-registered command for the `:` palette.
+// Populated by the ecosystem layer (fzt-terminal), not the engine.
+type CommandItem struct {
+	Name        string
+	Description string
+	Action      string
+}
+
 // State holds the context stack and global flags.
 type State struct {
-	Contexts    []TreeContext
-	Cancelled   bool
-	ShowVersion bool
-	Provider    TreeProvider // optional: loads children on demand for lazy tree modes
+	Contexts         []TreeContext
+	Cancelled        bool
+	ShowVersion      bool
+	Provider         TreeProvider  // optional: loads children on demand for lazy tree modes
+	FrontendCommands []CommandItem // populated by ecosystem layer
+	FrontendName     string        // populated by ecosystem layer
+	FrontendVersion  string        // populated by ecosystem layer
 }
 
 // TopCtx returns a pointer to the top of the context stack.
