@@ -487,6 +487,25 @@ func GetAncestorNames(allItems []Item, item Item) []string {
 	return names
 }
 
+// hasHiddenAncestor returns true if the item has a hidden ancestor that
+// is NOT in the current scope chain (i.e. we haven't scoped into it).
+func hasHiddenAncestor(allItems []Item, item Item, scope []ScopeLevel) bool {
+	idx := item.ParentIdx
+	for idx >= 0 && idx < len(allItems) {
+		if allItems[idx].Hidden {
+			// Check if this hidden folder is in our scope chain
+			for _, level := range scope {
+				if level.ParentIdx == idx {
+					return false // we're scoped into it, so its children are fair game
+				}
+			}
+			return true // hidden ancestor, not in scope
+		}
+		idx = allItems[idx].ParentIdx
+	}
+	return false
+}
+
 // FilterItems applies the current query to the state's items.
 func FilterItems(s *State, cfg Config, searchCols []int) {
 	ctx := s.TopCtx()
@@ -509,6 +528,11 @@ func FilterItems(s *State, cfg Config, searchCols []int) {
 
 	var matched []Item
 	for _, item := range searchPool {
+		// Skip items inside hidden folders (e.g. command palette)
+		// unless we're scoped into that hidden folder
+		if hasHiddenAncestor(ctx.AllItems, item, ctx.Scope) {
+			continue
+		}
 		ancestors := GetAncestorNames(ctx.AllItems, item)
 		ts, indices := ScoreItem(item.Fields, query, searchCols, ancestors)
 		if indices != nil {
