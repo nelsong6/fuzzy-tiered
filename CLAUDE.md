@@ -2,22 +2,24 @@
 
 ## Overview
 
-fzt (fuzzy tiered) is an fzf-compatible fuzzy finder with two additions: depth-aware tiered scoring and first-class column support. Written in Go. Full-screen mode uses tcell; inline mode (`--height`) renders directly with ANSI escapes.
+fzt (fuzzy tiered) is a pure scoring engine: depth-aware tiered scoring, tree state management, and pluggable data sources. Written in Go. No TUI, no rendering, no frontend concerns — those live in `nelsong6/fzt-terminal`.
 
 ### Package structure
 
-- **`core/`** — Public library. Data types (`Item`, `TieredScore`, `StyledRune`), fuzzy scoring (`FuzzyMatch`, `ScoreItem`), column parsing, YAML loading, ANSI parsing, tree state management (`State`, `TreeContext`, `PushScope`, `FilterItems`), and the `TreeProvider` interface for pluggable data sources. Importable by external consumers (picker, future frontends).
-- **`internal/tui/`** — Terminal UI. Rendering (`drawUnified`, `drawTreeRow`), key handling (`handleUnifiedKey`, `handleTreeKey`, `handleSearchKey`), `Session` (headless WASM wrapper), canvas abstraction, raw terminal I/O. Imports `core/` for all state operations.
-- **`cmd/`** — Entry points: CLI (`root.go`), WASM bridge (`wasm/main.go`), build script (`build/main.go`).
-- **`web/`** — Shared browser assets: `fzt-terminal.js`, `fzt-terminal.css`, `fzt-web.js`.
+- **`core/`** — Public library. Data types (`Item`, `TieredScore`, `StyledRune`), fuzzy scoring (`FuzzyMatch`, `ScoreItem`), column parsing, YAML loading, ANSI parsing, tree state management (`State`, `TreeContext`, `PushScope`, `FilterItems`), key handlers (`HandleUnifiedKey`, `HandleTreeKey`), and the `TreeProvider` interface for pluggable data sources.
+- **`render/`** — Headless rendering infrastructure. `Canvas` interface, `MemScreen` (in-memory grid), `Session` (headless wrapper for WASM/testing), ANSI serialization, structured data API (`GetVisibleRows`, `GetPromptState`, `GetUIState`).
+- **`cmd/fzt/`** — Minimal scoring CLI: `echo lines | fzt "query"` → ranked output. No TUI, no interaction.
+
+### Ecosystem
+
+Interactive tools import fzt alongside `nelsong6/fzt-terminal` which provides terminal/browser renderers, style (Catppuccin, DOS font, CRT), and frontend behavior (command palette, identity, actions). See the architecture diagrams at `docs.romaine.life/fzt/final`.
 
 Repo: `D:\repos\fzt`
-Binary: `~/bin/fzt.exe` (on PATH via Profile 1's `profile.ps1`). Update with `fzt --update` or `:update` from the command palette.
 
 ## Building
 
 ```
-go build -ldflags="-X github.com/nelsong6/fzt/internal/tui.Version=$(git describe --tags --always --dirty)" -o fzt.exe .
+go build -o fzt.exe ./cmd/fzt
 ```
 
 ## Scoring Architecture
