@@ -21,4 +21,14 @@ type Config struct {
 	TitlePos     string
 	TreeMode     bool
 	Label        string
+	// Frontend identity — set via CLI flags or WASM API
+	FrontendName     string
+	FrontendVersion  string
+	FrontendCommands []CommandItem
+	// Search depth limit — 0 = unlimited (default), N = only search N levels deep from current scope
+	SearchDepth int
+	// Provider for lazy tree loading (e.g. DirProvider for file picker mode)
+	Provider TreeProvider
+	// FocusedDir is a path to pre-expand when using a Provider (e.g. --focused-dir)
+	FocusedDir string
 }

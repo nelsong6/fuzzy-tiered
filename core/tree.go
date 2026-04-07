@@ -75,6 +75,8 @@ type State struct {
 	ShowVersion      bool
 	Provider         TreeProvider  // optional: loads children on demand for lazy tree modes
 	FrontendCommands []CommandItem // registered by the frontend; shown at top level of `:` palette
+	FrontendName     string        // e.g. "homepage", "at", "picker" — used for ctl title
+	FrontendVersion  string        // e.g. "v1.0" — shown in frontend version indicator
 }
 
 // TopCtx returns a pointer to the top of the context stack.
@@ -192,6 +194,39 @@ func DescendantsOf(allItems []Item, parentIdx int) []Item {
 	return out
 }
 
+// DescendantsOfDepth returns items under parentIdx, limited to maxDepth levels.
+func DescendantsOfDepth(allItems []Item, parentIdx int, maxDepth int) []Item {
+	if parentIdx < 0 {
+		// From root: collect items within maxDepth levels
+		var out []Item
+		for _, item := range allItems {
+			if item.Depth < maxDepth {
+				out = append(out, item)
+			}
+		}
+		return out
+	}
+	parentDepth := allItems[parentIdx].Depth
+	var out []Item
+	var collect func(idx int, depth int)
+	collect = func(idx int, depth int) {
+		if depth > maxDepth {
+			return
+		}
+		for _, childIdx := range allItems[idx].Children {
+			if childIdx < len(allItems) {
+				out = append(out, allItems[childIdx])
+				if depth < maxDepth {
+					collect(childIdx, depth+1)
+				}
+			}
+		}
+	}
+	_ = parentDepth
+	collect(parentIdx, 1)
+	return out
+}
+
 // ChildrenOf returns the direct children of the item at parentIdx in allItems.
 func ChildrenOf(allItems []Item, parentIdx int) []Item {
 	parent := allItems[parentIdx]
@@ -205,9 +240,27 @@ func ChildrenOf(allItems []Item, parentIdx int) []Item {
 }
 
 // TreeVisibleItems builds the list of currently visible tree rows.
+// If scoped into a hidden folder, starts from that folder's children
+// instead of root (exclusive "takeover" view).
 func TreeVisibleItems(s *State) []TreeRow {
+	ctx := s.TopCtx()
+	// Check if any scope level is a hidden folder — if so, render from there
+	startIdx := -1
+	for _, level := range ctx.Scope[1:] {
+		if level.ParentIdx >= 0 && level.ParentIdx < len(ctx.AllItems) {
+			if ctx.AllItems[level.ParentIdx].Hidden {
+				startIdx = level.ParentIdx
+				break // use the outermost hidden scope
+			}
+		}
+	}
 	var rows []TreeRow
-	buildVisibleTree(s, -1, &rows)
+	if startIdx >= 0 {
+		// Exclusive view: only show children of the hidden folder
+		buildVisibleTree(s, startIdx, &rows)
+	} else {
+		buildVisibleTree(s, -1, &rows)
+	}
 	return rows
 }
 
@@ -228,12 +281,47 @@ func buildVisibleTree(s *State, parentIdx int, rows *[]TreeRow) {
 		if idx >= len(ctx.AllItems) {
 			continue
 		}
-		*rows = append(*rows, TreeRow{Item: ctx.AllItems[idx], ItemIdx: idx})
+		item := ctx.AllItems[idx]
+		if item.Hidden {
+			// Never render hidden items as rows, but recurse into children
+			// if the folder is expanded or in the scope chain
+			inScope := false
+			for _, level := range ctx.Scope {
+				if level.ParentIdx == idx {
+					inScope = true
+					break
+				}
+			}
+			expanded := ctx.TreeExpanded[idx] || ctx.QueryExpanded[idx] || inScope
+			if item.HasChildren && expanded {
+				buildVisibleTree(s, idx, rows)
+			}
+			continue
+		}
+		*rows = append(*rows, TreeRow{Item: item, ItemIdx: idx})
 		expanded := ctx.TreeExpanded[idx] || ctx.QueryExpanded[idx]
-		if ctx.AllItems[idx].HasChildren && expanded {
+		if item.HasChildren && expanded {
 			buildVisibleTree(s, idx, rows)
 		}
 	}
+}
+
+// isVisibleHidden returns true if a hidden item should still be shown —
+// either because it matches the current search or it's in the active scope chain.
+func isVisibleHidden(ctx *TreeContext, idx int) bool {
+	// Check if in scope chain (folder was entered)
+	for _, level := range ctx.Scope {
+		if level.ParentIdx == idx {
+			return true
+		}
+	}
+	// Check if it matches the current filtered results
+	for _, item := range ctx.Filtered {
+		if FindInAll(ctx.AllItems, item) == idx {
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateQueryExpansion sets auto-expansion to reveal the top match in the tree.
@@ -259,6 +347,8 @@ func UpdateQueryExpansion(s *State) {
 }
 
 // SyncTreeCursorToTopMatch moves the tree cursor to the top match position.
+// If the top match is hidden (not in visible rows), resets cursor to -1
+// so the "act on top match" fallback fires on Enter.
 func SyncTreeCursorToTopMatch(s *State) {
 	ctx := s.TopCtx()
 	if len(ctx.Filtered) == 0 {
@@ -275,6 +365,8 @@ func SyncTreeCursorToTopMatch(s *State) {
 			return
 		}
 	}
+	// Top match not in visible tree (hidden item) — clear cursor
+	ctx.TreeCursor = -1
 }
 
 // PushScope enters a folder, expanding it in the tree.
@@ -406,7 +498,12 @@ func FilterItems(s *State, cfg Config, searchCols []int) {
 
 	searchPool := ctx.Items
 	if cfg.Tiered {
-		searchPool = DescendantsOf(ctx.AllItems, ctx.Scope[len(ctx.Scope)-1].ParentIdx)
+		parentIdx := ctx.Scope[len(ctx.Scope)-1].ParentIdx
+		if cfg.SearchDepth > 0 {
+			searchPool = DescendantsOfDepth(ctx.AllItems, parentIdx, cfg.SearchDepth)
+		} else {
+			searchPool = DescendantsOf(ctx.AllItems, parentIdx)
+		}
 	}
 
 	var matched []Item
@@ -451,4 +548,187 @@ func BuildScopePath(s *State) string {
 		return ""
 	}
 	return strings.Join(parts, " › ")
+}
+
+// InjectCommandFolder appends the `:` command folder and its children to the
+// tree's AllItems. When a frontend is registered (FrontendName set), the first
+// level holds frontend commands and a nested `:` subfolder holds core commands.
+// When no frontend is registered (raw fzt), the first level holds core commands
+// directly — no nested subfolder.
+func InjectCommandFolder(s *State, coreVersion string) {
+	ctx := s.TopCtx()
+	hasFrontend := s.FrontendName != ""
+
+	coreVerStr := coreVersion
+	if coreVerStr == "" {
+		coreVerStr = "dev"
+	}
+
+	base := len(ctx.AllItems)
+	ctlFolderIdx := base
+	var items []Item
+
+	if hasFrontend {
+		items = buildTwoLevelCommandTree(s, ctlFolderIdx, coreVerStr)
+	} else {
+		items = buildCoreLevelCommandTree(ctlFolderIdx, coreVerStr)
+	}
+
+	ctx.AllItems = append(ctx.AllItems, items...)
+	ctx.Items = RootItemsOf(ctx.AllItems)
+}
+
+// buildCoreLevelCommandTree builds `:` → core commands directly (no frontend layer).
+func buildCoreLevelCommandTree(ctlFolderIdx int, coreVersion string) []Item {
+	idx := ctlFolderIdx + 1
+
+	versionFolderIdx := idx
+	idx++
+	versionOnIdx := idx
+	idx++
+	versionOffIdx := idx
+	idx++
+	updateIdx := idx
+
+	ctlChildren := []int{versionFolderIdx, updateIdx}
+
+	return []Item{
+		// `:` root folder
+		{
+			Fields:      []string{":", "fzt " + coreVersion},
+			Depth:       0,
+			HasChildren: true,
+			ParentIdx:   -1,
+			Children:    ctlChildren,
+			Hidden:      true,
+		},
+		// version folder
+		{
+			Fields:      []string{"version", "Show/hide version in title bar"},
+			Depth:       1,
+			HasChildren: true,
+			ParentIdx:   ctlFolderIdx,
+			Children:    []int{versionOnIdx, versionOffIdx},
+		},
+		{Fields: []string{"on", "Show version"}, Depth: 2, ParentIdx: versionFolderIdx},
+		{Fields: []string{"off", "Hide version"}, Depth: 2, ParentIdx: versionFolderIdx},
+		// update
+		{Fields: []string{"update", "Update fzt to latest release"}, Depth: 1, ParentIdx: ctlFolderIdx},
+	}
+}
+
+// buildTwoLevelCommandTree builds `:` → frontend commands + `::` → core commands.
+func buildTwoLevelCommandTree(s *State, ctlFolderIdx int, coreVersion string) []Item {
+	idx := ctlFolderIdx + 1
+	var ctlChildren []int
+
+	frontendName := s.FrontendName
+	frontendVer := s.FrontendVersion
+	if frontendVer == "" {
+		frontendVer = "unknown"
+	}
+
+	// Frontend version folder (on/off)
+	feVersionFolderIdx := idx
+	ctlChildren = append(ctlChildren, feVersionFolderIdx)
+	idx++
+	feVersionOnIdx := idx
+	idx++
+	feVersionOffIdx := idx
+	idx++
+
+	// Frontend commands
+	for range s.FrontendCommands {
+		ctlChildren = append(ctlChildren, idx)
+		idx++
+	}
+
+	// `:` core subfolder
+	coreSubfolderIdx := idx
+	ctlChildren = append(ctlChildren, coreSubfolderIdx)
+	idx++
+
+	// Core version folder (on/off)
+	coreVersionFolderIdx := idx
+	coreSubChildren := []int{coreVersionFolderIdx}
+	idx++
+	coreVersionOnIdx := idx
+	idx++
+	coreVersionOffIdx := idx
+	idx++
+
+	// Core update
+	coreUpdateIdx := idx
+	coreSubChildren = append(coreSubChildren, coreUpdateIdx)
+
+	// Build items
+	var items []Item
+
+	// `:` root folder
+	items = append(items, Item{
+		Fields: []string{":"}, Depth: 0, HasChildren: true,
+		ParentIdx: -1, Children: ctlChildren, Hidden: true,
+	})
+
+	// Frontend version folder
+	items = append(items, Item{
+		Fields: []string{"version", frontendName + " " + frontendVer}, Depth: 1,
+		HasChildren: true, ParentIdx: ctlFolderIdx,
+		Children: []int{feVersionOnIdx, feVersionOffIdx},
+	})
+	items = append(items, Item{Fields: []string{"on", "Show version"}, Depth: 2, ParentIdx: feVersionFolderIdx})
+	items = append(items, Item{Fields: []string{"off", "Hide version"}, Depth: 2, ParentIdx: feVersionFolderIdx})
+
+	// Frontend commands
+	for _, cmd := range s.FrontendCommands {
+		items = append(items, Item{
+			Fields: []string{cmd.Name, cmd.Description}, Depth: 1, ParentIdx: ctlFolderIdx,
+		})
+	}
+
+	// `:` core subfolder
+	items = append(items, Item{
+		Fields: []string{":", "fzt " + coreVersion}, Depth: 1,
+		HasChildren: true, ParentIdx: ctlFolderIdx, Children: coreSubChildren,
+	})
+
+	// Core version folder
+	items = append(items, Item{
+		Fields: []string{"version", "Show/hide version in title bar"}, Depth: 2,
+		HasChildren: true, ParentIdx: coreSubfolderIdx,
+		Children: []int{coreVersionOnIdx, coreVersionOffIdx},
+	})
+	items = append(items, Item{Fields: []string{"on", "Show version"}, Depth: 3, ParentIdx: coreVersionFolderIdx})
+	items = append(items, Item{Fields: []string{"off", "Hide version"}, Depth: 3, ParentIdx: coreVersionFolderIdx})
+
+	// Core update
+	items = append(items, Item{Fields: []string{"update", "Update fzt to latest release"}, Depth: 2, ParentIdx: coreSubfolderIdx})
+
+	return items
+}
+
+// ScopeCtlTitle returns the appropriate title for the current scope.
+// Returns "" if not inside a `:` command folder, "fzt ctl" if inside `::`,
+// or "<frontendName> ctl" if inside the first `:`.
+func ScopeCtlTitle(s *State) string {
+	ctx := s.TopCtx()
+	colonDepth := 0
+	for _, level := range ctx.Scope[1:] {
+		if level.ParentIdx >= 0 && level.ParentIdx < len(ctx.AllItems) {
+			if len(ctx.AllItems[level.ParentIdx].Fields) > 0 && ctx.AllItems[level.ParentIdx].Fields[0] == ":" {
+				colonDepth++
+			}
+		}
+	}
+	if colonDepth == 0 {
+		return ""
+	}
+	if colonDepth >= 2 {
+		return "fzt ctl"
+	}
+	name := s.FrontendName
+	if name == "" {
+		name = "fzt"
+	}
+	return name + " ctl"
 }

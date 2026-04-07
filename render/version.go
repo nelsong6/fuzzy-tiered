@@ -1,4 +1,4 @@
-package tui
+package render
 
 // Version is written by the build script (build/main.go) or ldflags in CI.
 // If this still says "UNSET", the binary was built incorrectly — use

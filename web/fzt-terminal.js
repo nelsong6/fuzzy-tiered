@@ -402,6 +402,26 @@ export function createFztTerminal(container, options = {}) {
       fzt.addCommands(commands);
     },
 
+    setFrontend(info) {
+      if (!ready) return;
+      fzt.setFrontend(info);
+    },
+
+    getVisibleRows() {
+      if (!ready || !sessionActive) return [];
+      return fzt.getVisibleRows();
+    },
+
+    getPromptState() {
+      if (!ready || !sessionActive) return null;
+      return fzt.getPromptState();
+    },
+
+    getUIState() {
+      if (!ready || !sessionActive) return null;
+      return fzt.getUIState();
+    },
+
     initSession() {
       if (!ready) return;
       const { cols, rows } = computeGridSize();

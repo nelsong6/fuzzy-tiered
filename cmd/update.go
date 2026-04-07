@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/nelsong6/fzt/internal/tui"
+	"github.com/nelsong6/fzt/render"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +36,7 @@ type ghAsset struct {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	fmt.Printf("Current version: %s\n", tui.Version)
+	fmt.Printf("Current version: %s\n", render.Version)
 
 	// Fetch latest release
 	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", ghRepo))
@@ -55,7 +55,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	latest := strings.TrimPrefix(release.TagName, "v")
-	current := strings.TrimPrefix(tui.Version, "v")
+	current := strings.TrimPrefix(render.Version, "v")
 	// Strip dirty/dev suffixes for comparison
 	if i := strings.IndexByte(current, '-'); i > 0 {
 		current = current[:i]

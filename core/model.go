@@ -24,4 +24,5 @@ type Item struct {
 	HasChildren   bool           // true if this item has children
 	Path          string         // breadcrumb path (e.g. "git › gitprune") for nested items
 	URL           string         // optional link URL (for web showcase leaf selection)
+	Hidden        bool           // hidden from tree view unless matched by search
 }

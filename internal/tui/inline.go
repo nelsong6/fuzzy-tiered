@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/nelsong6/fzt/core"
+	"github.com/nelsong6/fzt/render"
 )
 
 // RunInline renders the TUI inline in the main terminal buffer (no alternate screen).
@@ -38,13 +39,15 @@ func RunInline(items []core.Item, cfg Config) (string, error) {
 	rt.WriteString("\x1b[?25l")
 
 	// Create a MemScreen sized to the inline region
-	mem := NewMemScreen(termW, inlineH)
+	mem := render.NewMemScreen(termW, inlineH)
 
 	// Zero out Height in the config copy so renderFrame uses the full MemScreen
 	inlineCfg := cfg
 	inlineCfg.Height = 0
 
 	s, searchCols := core.NewState(items, inlineCfg)
+	applyFrontendConfig(s, inlineCfg)
+	core.InjectCommandFolder(s, render.Version)
 
 	// Initialize tree state if tree mode
 	if inlineCfg.TreeMode {
@@ -60,7 +63,7 @@ func RunInline(items []core.Item, cfg Config) (string, error) {
 	// the visible cursor away from the prompt between frames.
 	cursorRow := 0
 
-	render := func() {
+	doRender := func() {
 		mem.Clear()
 		if inlineCfg.TreeMode {
 			w, h := mem.Size()
@@ -104,13 +107,13 @@ func RunInline(items []core.Item, cfg Config) (string, error) {
 			rt.WriteString("\x1b[?25h") // show cursor
 			cursorRow = mem.CursorY
 		} else {
-			// Cursor hidden — we're still at the last line
+			// Cursor hidden -- we're still at the last line
 			cursorRow = inlineH - 1
 		}
 	}
 
 	// Initial render
-	render()
+	doRender()
 
 	// Event loop
 	var result string
@@ -125,11 +128,11 @@ func RunInline(items []core.Item, cfg Config) (string, error) {
 
 		var action string
 		if inlineCfg.TreeMode {
-			action = handleUnifiedKey(s, key, ch, inlineCfg, searchCols)
+			action = core.HandleUnifiedKey(s, key, ch, inlineCfg, searchCols)
 		} else {
-			action = handleKeyEvent(s, key, ch, inlineCfg, searchCols)
+			action = core.HandleKeyEvent(s, key, ch, inlineCfg, searchCols)
 		}
-		render()
+		doRender()
 
 		switch {
 		case action == "cancel":

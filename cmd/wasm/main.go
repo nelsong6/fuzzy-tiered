@@ -15,6 +15,7 @@ var (
 	currentItems     []core.Item
 	session          *tui.Session
 	pendingCommands  []core.CommandItem
+	pendingFrontend  struct{ name, version string }
 )
 
 func main() {
@@ -26,6 +27,10 @@ func main() {
 		"loadYAML":    js.FuncOf(loadYAML),
 		"setLabel":    js.FuncOf(setLabel),
 		"addCommands": js.FuncOf(addCommands),
+		"setFrontend":    js.FuncOf(setFrontend),
+		"getVisibleRows": js.FuncOf(getVisibleRows),
+		"getPromptState": js.FuncOf(getPromptState),
+		"getUIState":     js.FuncOf(getUIState),
 	}))
 	select {}
 }
@@ -71,6 +76,19 @@ func addCommands(this js.Value, args []js.Value) interface{} {
 	return js.Null()
 }
 
+// setFrontend registers the frontend name and version.
+// Args: {name: string, version: string}
+// Must be called before init().
+func setFrontend(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return jsError("setFrontend requires an object with name and version")
+	}
+	obj := args[0]
+	pendingFrontend.name = obj.Get("name").String()
+	pendingFrontend.version = obj.Get("version").String()
+	return js.Null()
+}
+
 // loadYAML parses YAML and stores items, but does not create a session.
 func loadYAML(this js.Value, args []js.Value) interface{} {
 	if len(args) < 1 {
@@ -110,6 +128,9 @@ func initSession(this js.Value, args []js.Value) interface{} {
 	}
 
 	session = tui.NewTreeSession(items, cfg, cols, rows)
+	if pendingFrontend.name != "" {
+		session.SetFrontendInfo(pendingFrontend.name, pendingFrontend.version)
+	}
 	if len(pendingCommands) > 0 {
 		session.SetFrontendCommands(pendingCommands)
 	}
@@ -254,6 +275,76 @@ func translateKey(key string, ctrl, shift bool) (tcell.Key, rune) {
 
 	// Multi-character key name we don't handle (Shift, Control, etc.)
 	return tcell.KeyRune, 0
+}
+
+// getVisibleRows returns structured data for all visible tree rows.
+func getVisibleRows(this js.Value, args []js.Value) interface{} {
+	if session == nil {
+		return jsError("session not initialized")
+	}
+	rows := session.GetVisibleRows()
+	arr := js.Global().Get("Array").New(len(rows))
+	for i, row := range rows {
+		obj := js.Global().Get("Object").New()
+		obj.Set("name", row.Name)
+		obj.Set("description", row.Description)
+		obj.Set("depth", row.Depth)
+		obj.Set("isFolder", row.IsFolder)
+		obj.Set("isSelected", row.IsSelected)
+		obj.Set("isTopMatch", row.IsTopMatch)
+		obj.Set("nameMatchIndices", intsToJS(row.NameMatchIndices))
+		obj.Set("descMatchIndices", intsToJS(row.DescMatchIndices))
+		arr.SetIndex(i, obj)
+	}
+	return arr
+}
+
+// getPromptState returns structured prompt bar state.
+func getPromptState(this js.Value, args []js.Value) interface{} {
+	if session == nil {
+		return jsError("session not initialized")
+	}
+	ps := session.GetPromptState()
+	obj := js.Global().Get("Object").New()
+	obj.Set("mode", ps.Mode)
+	scopeArr := js.Global().Get("Array").New(len(ps.ScopePath))
+	for i, s := range ps.ScopePath {
+		scopeArr.SetIndex(i, s)
+	}
+	obj.Set("scopePath", scopeArr)
+	obj.Set("query", ps.Query)
+	obj.Set("cursor", ps.Cursor)
+	obj.Set("ghost", ps.Ghost)
+	obj.Set("hint", ps.Hint)
+	return obj
+}
+
+// getUIState returns structured chrome/metadata state.
+func getUIState(this js.Value, args []js.Value) interface{} {
+	if session == nil {
+		return jsError("session not initialized")
+	}
+	ui := session.GetUIState()
+	obj := js.Global().Get("Object").New()
+	obj.Set("title", ui.Title)
+	obj.Set("titlePos", ui.TitlePos)
+	obj.Set("version", ui.Version)
+	obj.Set("label", ui.Label)
+	obj.Set("border", ui.Border)
+	obj.Set("treeOffset", ui.TreeOffset)
+	obj.Set("totalVisible", ui.TotalVisible)
+	return obj
+}
+
+func intsToJS(ints []int) interface{} {
+	if ints == nil {
+		return js.Null()
+	}
+	arr := js.Global().Get("Array").New(len(ints))
+	for i, v := range ints {
+		arr.SetIndex(i, v)
+	}
+	return arr
 }
 
 func frameToJS(frame tui.SessionFrame) interface{} {

@@ -41,7 +41,7 @@ func main() {
 	}
 
 	output += ext
-	ldflags := fmt.Sprintf("-X github.com/nelsong6/fzt/internal/tui.Version=%s", version)
+	ldflags := fmt.Sprintf("-X github.com/nelsong6/fzt/render.Version=%s", version)
 
 	args := []string{"build", "-ldflags", ldflags, "-o", output, pkg}
 	fmt.Printf("go %s\n", strings.Join(args, " "))

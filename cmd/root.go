@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/nelsong6/fzt/core"
 	"github.com/nelsong6/fzt/internal/tui"
+	"github.com/nelsong6/fzt/render"
 	"github.com/spf13/cobra"
 )
 
@@ -49,10 +51,16 @@ var (
 	flagTitlePos     string
 	flagTree         bool
 	flagUpdate       bool
+	flagFrontendName string
+	flagFrontendVer  string
+	flagCommands     string
+	flagDir          bool
+	flagFocusedDir   string
+	flagSearchDepth  int
 )
 
 func init() {
-	rootCmd.Version = tui.Version
+	rootCmd.Version = render.Version
 	rootCmd.Flags().StringVar(&flagLayout, "layout", "default", "Layout: 'default' or 'reverse'")
 	rootCmd.Flags().BoolVar(&flagBorder, "border", false, "Draw border around the finder")
 	rootCmd.Flags().IntVar(&flagHeaderLines, "header-lines", 0, "Number of header lines to pin (not filtered)")
@@ -79,10 +87,16 @@ func init() {
 	rootCmd.Flags().StringVar(&flagTitlePos, "title-pos", "left", "Title position: 'left', 'center', or 'right'")
 	rootCmd.Flags().BoolVar(&flagTree, "tree", false, "Start in tree view mode (expand/collapse navigation)")
 	rootCmd.Flags().BoolVar(&flagUpdate, "update", false, "Update fzt to the latest release")
+	rootCmd.Flags().StringVar(&flagFrontendName, "frontend-name", "", "Frontend identity name (e.g. 'at', 'picker')")
+	rootCmd.Flags().StringVar(&flagFrontendVer, "frontend-version", "", "Frontend version string (e.g. 'v1.0')")
+	rootCmd.Flags().StringVar(&flagCommands, "commands", "", "Frontend commands as JSON array: [{\"name\":\"x\",\"description\":\"y\",\"action\":\"z\"}]")
+	rootCmd.Flags().BoolVar(&flagDir, "dir", false, "Directory picker mode with lazy filesystem loading")
+	rootCmd.Flags().StringVar(&flagFocusedDir, "focused-dir", "", "Pre-expand tree to this directory path (used with --dir)")
+	rootCmd.Flags().IntVar(&flagSearchDepth, "search-depth", 0, "Limit search to N levels deep from current scope (0=unlimited)")
 }
 
 func Execute() {
-	if tui.Version == "UNSET" {
+	if render.Version == "UNSET" {
 		fmt.Fprintln(os.Stderr, "fzt: version not set — binary was built incorrectly. Use 'go run ./build' instead of 'go build'.")
 		os.Exit(1)
 	}
@@ -99,8 +113,19 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	var items []core.Item
+	var dirMode bool
 
-	if flagYAML != "" {
+	if flagDir {
+		// Directory picker mode: start from drive roots, lazy loading
+		items = core.ListDriveRoots()
+		flagTiered = true
+		flagTree = true
+		flagBorder = true
+		dirMode = true
+		if flagSearchDepth == 0 {
+			flagSearchDepth = 1 // default for picker
+		}
+	} else if flagYAML != "" {
 		// YAML mode: load from file, auto-enable tiered scoring
 		var err error
 		items, err = core.LoadYAML(flagYAML)
@@ -153,9 +178,18 @@ func run(cmd *cobra.Command, args []string) error {
 		Height:       parseHeight(flagHeight),
 		ShowScores:   flagShowScores,
 		ANSI:         flagANSI,
-		Title:        flagTitle,
-		TitlePos:     flagTitlePos,
-		TreeMode:     flagTree,
+		Title:           flagTitle,
+		TitlePos:         flagTitlePos,
+		TreeMode:         flagTree,
+		FrontendName:     flagFrontendName,
+		FrontendVersion:  flagFrontendVer,
+		FrontendCommands: parseFrontendCommands(flagCommands),
+		SearchDepth: flagSearchDepth,
+	}
+
+	if dirMode {
+		cfg.Provider = core.NewDirProvider()
+		cfg.FocusedDir = flagFocusedDir
 	}
 
 	// Non-interactive filter mode
@@ -250,4 +284,16 @@ func parseHeight(s string) int {
 		return 0
 	}
 	return n
+}
+
+func parseFrontendCommands(s string) []core.CommandItem {
+	if s == "" {
+		return nil
+	}
+	var commands []core.CommandItem
+	if err := json.Unmarshal([]byte(s), &commands); err != nil {
+		fmt.Fprintf(os.Stderr, "fzt: invalid --commands JSON: %v\n", err)
+		return nil
+	}
+	return commands
 }
