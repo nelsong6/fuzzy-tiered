@@ -95,7 +95,17 @@ func isWordBoundary(r rune) bool {
 // ScoreItem scores an item across multiple fields, returning a TieredScore.
 // searchCols specifies which field indices to search (1-based). If empty, all fields are searched.
 // ancestorNames provides parent/grandparent folder names as the lowest match tier.
-// The query is split on whitespace; every term must match for the item to be included.
+// The query is split on whitespace; every term must match for the item to be included (AND logic).
+// Each term independently finds its best match tier (Name > Desc > Ancestor).
+//
+// DESIGN IMPLICATION: Ancestor matching eliminates name collision concerns.
+// Items with the same name under different parents are uniquely searchable.
+// Example: "whoami on" matches only the "on" under a "whoami" folder, not
+// the "on" under "version", because "whoami" must match an ancestor — and
+// only whoami's children have "whoami" in their ancestor chain.
+// Never rename items to avoid apparent collisions — the tree structure
+// handles disambiguation via this mechanism.
+//
 // Returns a zero TieredScore and nil indices if any term fails to match.
 func ScoreItem(fields []string, query string, searchCols []int, ancestorNames []string) (TieredScore, [][]int) {
 	if query == "" {

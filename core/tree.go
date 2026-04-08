@@ -67,18 +67,20 @@ type CommandItem struct {
 	Name        string
 	Description string
 	Action      string
+	Children    []CommandItem
 }
 
 // State holds the context stack and global flags.
 type State struct {
-	Contexts         []TreeContext
-	Cancelled        bool
-	VersionDisplay   string   // version string shown in border (empty = hidden)
-	VersionRegistry  []string // indexed version strings; "on" buttons reference by index
-	Provider         TreeProvider  // optional: loads children on demand for lazy tree modes
-	FrontendCommands []CommandItem // populated by ecosystem layer
-	FrontendName     string        // populated by ecosystem layer
-	FrontendVersion  string        // populated by ecosystem layer
+	Contexts         []TreeContext  // context stack. Index 0 = primary dataset. Command palette pushes on top. TopCtx() returns active (top) context.
+	Cancelled        bool           // set by Ctrl+C or Escape from root — signals render loop to exit
+	VersionDisplay   string         // string shown in the border top-right. Empty = hidden. Set by "on"/"off" commands in the : palette.
+	VersionRegistry  []string       // ordered version/identity strings. "on" items reference by index in Fields[2]. Built by InjectCommandFolder.
+	Provider         TreeProvider   // optional lazy-loader. PushScope calls LoadChildren when entering a folder with no children.
+	FrontendCommands []CommandItem  // commands for the first level of the : palette. Set by ApplyConfig from Config.FrontendCommands.
+	FrontendName     string         // frontend identifier (e.g. "automate"). Drives scope title ("automate ctl" vs "fzt ctl").
+	FrontendVersion  string         // frontend version string. Registered at index 0 of VersionRegistry.
+	IdentityLabel    string         // loaded identity (e.g. "nelson"). Registered at last index of VersionRegistry, shown via "whoami > on".
 }
 
 // TopCtx returns a pointer to the top of the context stack.

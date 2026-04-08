@@ -15,6 +15,13 @@ fzt (fuzzy tiered) is a pure scoring and state engine: depth-aware tiered scorin
 
 Interactive tools import fzt alongside `nelsong6/fzt-terminal` which provides terminal/browser renderers, style (Catppuccin, DOS font, CRT), and frontend behavior (command palette, identity, actions). See the architecture diagrams at `docs.romaine.life/fzt/final`.
 
+Cross-repo references:
+
+- Command palette injection and action routing: `fzt-terminal/command.go`
+- WASM bridge exposing engine to browsers: `fzt-terminal/cmd/wasm/main.go`
+- Bookmark data flow into fzt: `my-homepage/frontend/fzh-terminal.js` (bookmarksToYaml -> loadYAML -> init)
+- Ancestor matching design implication: `core/scorer.go` ScoreItem comment
+
 Repo: `D:\repos\fzt`
 
 ## Building
@@ -42,6 +49,19 @@ Scoring uses a `TieredScore` struct with three levels compared lexicographically
 
 Queries are split on whitespace. Every term must match somewhere (AND logic). Each term independently finds its best match across the three tiers, preferring the highest tier available. Example: `git prune` -- "git" may match an ancestor name while "prune" matches the item's own name.
 
+### Ancestor matching eliminates name collisions
+
+Items with the same name in different folders are uniquely searchable. Ancestor names are inherited via `ParentIdx` chain and scored at the ancestor tier. Example: the command palette has "on"/"off" leaves under both `version` and `whoami` -- "whoami on" finds only whoami's "on" because "whoami" must match an ancestor, and only whoami's children have it. Do NOT rename items to avoid apparent collisions -- the scoring system handles disambiguation. This is the intended design. See `core/scorer.go` ScoreItem comment.
+
+### Config field relationships
+
+- `TreeMode` is a renderer flag consumed by fzt-terminal's tui package. The engine does not read it.
+- `Tiered` enables hierarchical scoring in the engine: depth penalty, ancestor matching, scope-based search pools in FilterItems. TreeMode implies Tiered in practice (all tree-mode callers set both), but they are separate fields.
+- `SearchCols` (1-based) restricts which fields qualify for the Name tier. If empty, falls back to `Nth`. Description fields (index 1+) are always searchable at the Desc tier regardless.
+- `DepthPenalty` is subtracted from Name tier score as `relativeDepth * DepthPenalty`. Relative depth is measured from current scope, not absolute. All callers use 5.
+- `FrontendName`/`FrontendVersion`/`FrontendCommands` are set by the ecosystem (fzt-terminal ApplyConfig), not the engine. They drive the two-level `:` palette via InjectCommandFolder.
+- `InitialDisplay` maps to `State.IdentityLabel` -- shown via "whoami > on" in the command palette.
+
 ### Per-character scoring (FuzzyMatch)
 
 Left-to-right character scan: +1 per match, +2 if consecutive, +3 bonus at position 0 or after a word boundary (space, `/`, `-`, `_`, `>`).
@@ -53,10 +73,11 @@ Tree state lives in `core/`. `State` holds a stack of `TreeContext` values, each
 ### Key concepts
 
 - **Scope**: Entering a folder pushes a `ScopeLevel` that saves query/cursor/offset. `PopScope` restores state and conditionally collapses the folder.
-- **Context stack**: Multiple datasets (e.g., command palette pushed on top of normal tree). `PushContext`/`PopContext` manage the stack.
+- **Context stack**: `State.Contexts` is a stack of `TreeContext` values. Index 0 = primary dataset. The command palette pushes a second context on top with its own items, query, and scope. `PushContext`/`PopContext` manage the stack. `TopCtx()` always returns the active context.
 - **Provider**: `TreeProvider` interface enables lazy-loading. When `PushScope` encounters a folder with no loaded children and a provider is set, it calls `LoadChildren` to splice items dynamically.
 - **Filtering**: `FilterItems` applies the current query to the search pool. In tiered mode, searches all descendants (optionally depth-limited via `SearchDepth`) with ancestor name inheritance. Results are sorted by `TieredScore.Less()`.
 - **Auto-expansion**: `UpdateQueryExpansion` sets `QueryExpanded` flags to reveal the top match. `SyncTreeCursorToTopMatch` positions the cursor on it.
+- **Hidden folders**: Items with `Hidden: true` are excluded from the visible tree but participate in search. The `:` command palette folder uses this -- it's invisible at root but becomes visible when scoped into. `TreeVisibleItems` starts from a hidden folder's children (exclusive "takeover" view) when the user is scoped inside it.
 
 ### Input handlers
 

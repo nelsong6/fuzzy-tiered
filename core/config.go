@@ -1,34 +1,41 @@
 package core
 
 // Config holds all options derived from CLI flags.
-// Rendering-specific fields (Layout, Border, Title, etc.) are ignored by core
-// state functions but kept here to avoid splitting the struct prematurely.
+//
+// Key relationships:
+//   - TreeMode is a renderer flag (consumed by fzt-terminal tui package, not the engine).
+//     Tiered enables hierarchical scoring (depth penalty, ancestor matching) in the engine.
+//     TreeMode implies Tiered in practice — all tree-mode callers also set Tiered.
+//   - SearchCols overrides Nth for scoring. Nth restricts which fields are searched in flat mode.
+//     Description fields (index 1+) are always searchable at the desc tier regardless of either.
+//   - FrontendName/Version/Commands are set by the ecosystem layer (fzt-terminal ApplyConfig).
+//     They drive the two-level `:` command palette structure in InjectCommandFolder.
 type Config struct {
-	Layout       string // "reverse" or "default"
-	Border       bool
-	HeaderLines  int
-	Nth          []int // 1-based field indices for search scope
-	AcceptNth    []int // 1-based field indices for output
-	Prompt       string
-	Delimiter    string
-	Tiered       bool
-	DepthPenalty int
-	SearchCols   []int // 1-based, overrides Nth for scoring
-	Height       int   // percentage of terminal height (0 = full)
-	ShowScores   bool  // annotate filter output with scores
-	ANSI         bool  // preserve ANSI colors from input
-	Title        string
-	TitlePos     string
-	TreeMode     bool
-	Label        string
-	// Search depth limit — 0 = unlimited (default), N = only search N levels deep from current scope
-	SearchDepth int
-	// Frontend identity — populated by ecosystem layer, not the engine
-	FrontendName     string
-	FrontendVersion  string
-	FrontendCommands []CommandItem
-	// Provider for lazy tree loading (e.g. DirProvider for file picker mode)
-	Provider TreeProvider
-	// FocusedDir is a path to pre-expand when using a Provider (e.g. --focused-dir)
-	FocusedDir string
+	Layout       string // "reverse" (prompt at top) or "default" (prompt at bottom). Renderer-only.
+	Border       bool   // draw box border around the TUI. Renderer-only.
+	HeaderLines  int    // number of leading items treated as column headers (not scored)
+	Nth          []int  // 1-based field indices for search scope in flat mode. Fallback for SearchCols.
+	AcceptNth    []int  // 1-based field indices to include in the output string on selection
+	Prompt       string // custom prompt prefix string
+	Delimiter    string // field delimiter for ParseLines (e.g. "\t")
+	Tiered       bool   // enable hierarchical scoring: depth penalty, ancestor matching, scope-based search pools
+	DepthPenalty int    // per-level penalty subtracted from Name tier score (relative to current scope). All callers use 5.
+	SearchCols   []int  // 1-based: restricts which fields qualify for the Name tier. Overrides Nth for scoring.
+	Height       int    // percentage of terminal height (0 = full screen, 1-99 = inline mode)
+	ShowScores   bool   // annotate filter output with raw scores (debugging)
+	ANSI         bool   // preserve ANSI escape codes from input in StyledFields
+	Title        string // border title text
+	TitlePos     string // title position within border
+	TreeMode     bool   // renderer flag: use drawUnified (tree view). Not read by the engine.
+	Label        string // secondary label shown in the border (top-left, e.g. user name)
+	SearchDepth  int    // 0 = unlimited, N = search only N levels deep from current scope
+	// Frontend identity — populated by ecosystem layer (fzt-terminal ApplyConfig), not the engine.
+	FrontendName     string        // e.g. "automate", "homepage" — shown as "X ctl" scope title
+	FrontendVersion  string        // displayed via "version > on" in the : palette
+	FrontendCommands []CommandItem // registered commands for the first level of the : palette
+	InitialDisplay   string        // mapped to State.IdentityLabel — shown via "whoami > on" in : palette
+	// Provider for lazy tree loading (e.g. DirProvider for file picker mode).
+	// PushScope calls Provider.LoadChildren when entering a folder with no loaded children.
+	Provider   TreeProvider
+	FocusedDir string // path to pre-expand on startup when using Provider (e.g. current working directory)
 }

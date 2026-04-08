@@ -12,17 +12,17 @@ type StyledRune struct {
 
 // Item represents a single input line parsed into fields.
 type Item struct {
-	Fields        []string       // clean field values (ANSI stripped) for matching and width calculation
-	DisplayFields []string       // original field values with ANSI codes preserved
-	StyledFields  [][]StyledRune // parsed ANSI: each field as styled runes (nil if --ansi not used)
-	Depth         int            // hierarchy depth (0 = top level), only used with --tiered
-	Score         TieredScore    // computed fuzzy match score
-	MatchIndices  [][]int        // per-field match indices for highlighting
-	Original      string         // the original unsplit line
-	Children      []int          // indices of direct children in the flat items slice
-	ParentIdx     int            // index of parent in the flat items slice (-1 for root)
-	HasChildren   bool           // true if this item has children
-	Path          string         // breadcrumb path (e.g. "git › gitprune") for nested items
-	URL           string         // optional link URL (for web showcase leaf selection)
-	Hidden        bool           // hidden from tree view unless matched by search
+	Fields        []string       // ANSI-stripped field values for matching. Index 0 is always the name.
+	DisplayFields []string       // field values with ANSI codes preserved (for rendering)
+	StyledFields  [][]StyledRune // parsed ANSI per field (nil if --ansi not used)
+	Depth         int            // tree depth (0 = top level). Used for tiered scoring depth penalty.
+	Score         TieredScore    // match score populated by FilterItems, consumed by sort
+	MatchIndices  [][]int        // per-field character positions that matched — used for highlight rendering
+	Original      string         // original unsplit input line (set by ParseLines; empty for YAML/provider)
+	Children      []int          // indices of direct children in the flat AllItems slice
+	ParentIdx     int            // index of parent in flat AllItems slice (-1 for root). Drives ancestor matching in ScoreItem.
+	HasChildren   bool           // true for folders. Distinct from len(Children)>0: lazy-loaded folders start with HasChildren=true but empty Children.
+	Path          string         // breadcrumb path from YAML loading (e.g. "git › gitprune"). Set by flattenYAML.
+	URL           string         // optional URL for web leaf selection. Set from YAML url field.
+	Hidden        bool           // excluded from tree view unless in scope chain. Used for the `:` command palette folder.
 }
