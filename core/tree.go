@@ -88,6 +88,14 @@ type State struct {
 	SyncTimerShown   bool           // true = show countdown to next sync check in the title bar
 	JWTSecret        string         // JWT signing secret from OS credential store, set by validate command
 	ConfigDir        string         // directory containing sync state files (.identity, identities.json, cache)
+	EditMode         string         // active edit action: "add-after", "add-folder", "rename", "delete", "inspect", "" = none
+	EditBuffer       []rune         // text buffer for rename mode
+	EditTargetIdx    int            // item index being renamed (for restoring on cancel)
+	EditOrigName     string         // original name before rename (for restoring on cancel)
+	Dirty            bool           // unsaved changes exist
+	MenuVersion      int            // last known version from API, used for conflict detection on save
+	InspectTargetIdx int            // item being inspected (-1 = none)
+	InspectItemIdxs  []int          // indices of temporary property items in AllItems
 }
 
 // TopCtx returns a pointer to the top of the context stack.
@@ -167,7 +175,9 @@ func NewState(items []Item, cfg Config) (*State, []int) {
 	}
 
 	s := &State{
-		Contexts: []TreeContext{rootCtx},
+		Contexts:         []TreeContext{rootCtx},
+		InspectTargetIdx: -1,
+		EditTargetIdx:    -1,
 	}
 
 	searchCols := cfg.SearchCols
@@ -457,6 +467,155 @@ func SpliceChildren(ctx *TreeContext, parentIdx int, newItems []Item) {
 		ctx.AllItems[parentIdx].Children = append(ctx.AllItems[parentIdx].Children, baseIdx+i)
 	}
 	ctx.AllItems = append(ctx.AllItems, newItems...)
+}
+
+// AddItemAfter appends a new item to AllItems as a sibling after cursorItemIdx.
+// Returns the index of the new item in AllItems.
+func AddItemAfter(ctx *TreeContext, cursorItemIdx int, newItem Item) int {
+	if cursorItemIdx < 0 || cursorItemIdx >= len(ctx.AllItems) {
+		return -1
+	}
+	cursor := ctx.AllItems[cursorItemIdx]
+	parentIdx := cursor.ParentIdx
+	newItem.ParentIdx = parentIdx
+	newItem.Depth = cursor.Depth
+
+	newIdx := len(ctx.AllItems)
+	ctx.AllItems = append(ctx.AllItems, newItem)
+
+	// Insert in parent's Children after cursor's position
+	if parentIdx >= 0 {
+		parent := &ctx.AllItems[parentIdx]
+		insertAt := len(parent.Children) // default: end
+		for i, childIdx := range parent.Children {
+			if childIdx == cursorItemIdx {
+				insertAt = i + 1
+				break
+			}
+		}
+		parent.Children = append(parent.Children, 0)
+		copy(parent.Children[insertAt+1:], parent.Children[insertAt:])
+		parent.Children[insertAt] = newIdx
+	}
+
+	return newIdx
+}
+
+// AddChildTo appends a new item as the first child of parentIdx.
+// Sets HasChildren on the parent. Returns the index of the new item.
+func AddChildTo(ctx *TreeContext, parentIdx int, newItem Item) int {
+	if parentIdx < 0 || parentIdx >= len(ctx.AllItems) {
+		return -1
+	}
+	parent := &ctx.AllItems[parentIdx]
+	newItem.ParentIdx = parentIdx
+	newItem.Depth = parent.Depth + 1
+
+	newIdx := len(ctx.AllItems)
+	ctx.AllItems = append(ctx.AllItems, newItem)
+
+	parent.Children = append([]int{newIdx}, parent.Children...)
+	parent.HasChildren = true
+
+	return newIdx
+}
+
+// DeleteItem soft-deletes an item and its children by hiding them
+// and removing from the parent's Children slice.
+func DeleteItem(ctx *TreeContext, itemIdx int) {
+	if itemIdx < 0 || itemIdx >= len(ctx.AllItems) {
+		return
+	}
+	// Recursively hide children
+	var hideRecursive func(idx int)
+	hideRecursive = func(idx int) {
+		ctx.AllItems[idx].Hidden = true
+		for _, childIdx := range ctx.AllItems[idx].Children {
+			hideRecursive(childIdx)
+		}
+	}
+	hideRecursive(itemIdx)
+
+	// Remove from parent's Children
+	parentIdx := ctx.AllItems[itemIdx].ParentIdx
+	if parentIdx >= 0 {
+		parent := &ctx.AllItems[parentIdx]
+		for i, childIdx := range parent.Children {
+			if childIdx == itemIdx {
+				parent.Children = append(parent.Children[:i], parent.Children[i+1:]...)
+				break
+			}
+		}
+		if len(parent.Children) == 0 {
+			parent.HasChildren = false
+		}
+	}
+}
+
+// CanDelete returns false if the item is in the active scope chain.
+func CanDelete(s *State, itemIdx int) bool {
+	ctx := s.TopCtx()
+	for _, level := range ctx.Scope {
+		if level.ParentIdx == itemIdx {
+			return false
+		}
+	}
+	return true
+}
+
+// SerializeTree converts AllItems to nested JSON-compatible structures.
+// Skips property items (ephemeral) and soft-deleted items.
+// Includes hidden items (command palette) and action/hidden fields.
+func SerializeTree(ctx *TreeContext) []interface{} {
+	var serializeItem func(idx int) map[string]interface{}
+	serializeItem = func(idx int) map[string]interface{} {
+		item := ctx.AllItems[idx]
+		if item.IsProperty {
+			return nil
+		}
+
+		m := map[string]interface{}{}
+		if len(item.Fields) > 0 {
+			m["name"] = item.Fields[0]
+		}
+		if len(item.Fields) > 1 && item.Fields[1] != "" {
+			m["description"] = item.Fields[1]
+		}
+		if item.Action != nil {
+			if item.Action.Type == "url" {
+				m["url"] = item.Action.Target
+			} else if item.Action.Target != "" {
+				m["action"] = item.Action.Target
+			}
+		}
+		if item.Hidden {
+			m["hidden"] = true
+		}
+
+		if len(item.Children) > 0 {
+			var children []interface{}
+			for _, childIdx := range item.Children {
+				child := serializeItem(childIdx)
+				if child != nil {
+					children = append(children, child)
+				}
+			}
+			if len(children) > 0 {
+				m["children"] = children
+			}
+		}
+		return m
+	}
+
+	var result []interface{}
+	for i, item := range ctx.AllItems {
+		if item.Depth == 0 && !item.IsProperty {
+			if m := serializeItem(i); m != nil {
+				result = append(result, m)
+			}
+		}
+	}
+	return result
 }
 
 // PopScope exits the current folder scope, returning to the parent.

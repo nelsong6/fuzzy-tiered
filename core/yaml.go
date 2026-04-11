@@ -14,6 +14,8 @@ type YAMLEntry struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description,omitempty"`
 	URL         string      `yaml:"url,omitempty"`
+	Action      string      `yaml:"action,omitempty"`
+	Hidden      bool        `yaml:"hidden,omitempty"`
 	Children    interface{} `yaml:"children,omitempty"` // []YAMLEntry or string (file path)
 }
 
@@ -82,7 +84,9 @@ func flattenYAML(entries []YAMLEntry, baseDir string, depth int, parentIdx int, 
 			ParentIdx:   parentIdx,
 			HasChildren: hasChildren,
 			Path:        path,
-			URL:         e.URL,
+			Action:      entryToAction(e.URL, e.Action),
+			Hidden:      e.Hidden,
+			PropertyOf:  -1,
 		})
 
 		// Register this item as a child of its parent
@@ -118,6 +122,19 @@ func flattenYAML(entries []YAMLEntry, baseDir string, depth int, parentIdx int, 
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// entryToAction converts YAML url/action strings into an *ItemAction.
+// URL takes precedence (type "url"). Action alone becomes type "command".
+// Returns nil if both are empty.
+func entryToAction(url, action string) *ItemAction {
+	if url != "" {
+		return &ItemAction{Type: "url", Target: url}
+	}
+	if action != "" {
+		return &ItemAction{Type: "command", Target: action}
 	}
 	return nil
 }

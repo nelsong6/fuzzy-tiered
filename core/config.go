@@ -38,5 +38,6 @@ type Config struct {
 	// PushScope calls Provider.LoadChildren when entering a folder with no loaded children.
 	Provider   TreeProvider
 	FocusedDir string // path to pre-expand on startup when using Provider (e.g. current working directory)
-	ConfigDir  string // directory containing sync state files (.last-sync-check, .identity, identities.json, cache)
+	ConfigDir          string // directory containing sync state files (.last-sync-check, .identity, identities.json, cache)
+	InitialMenuVersion int    // persisted menu version for conflict detection on save
 }

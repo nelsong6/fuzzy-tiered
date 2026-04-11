@@ -20,11 +20,96 @@ func syncQueryToCursor(ctx *TreeContext, visible []TreeRow) {
 	}
 }
 
+// handleRenameKey processes key events during rename mode.
+// Enter confirms, Escape cancels, printable chars edit the buffer.
+func handleRenameKey(s *State, key tcell.Key, ch rune) string {
+	switch key {
+	case tcell.KeyEnter:
+		// Confirm edit
+		ctx := s.TopCtx()
+		if s.EditTargetIdx >= 0 && s.EditTargetIdx < len(ctx.AllItems) {
+			target := &ctx.AllItems[s.EditTargetIdx]
+			newVal := string(s.EditBuffer)
+
+			if target.IsProperty && target.PropertyOf >= 0 && target.PropertyOf < len(ctx.AllItems) {
+				// Property edit — write value back to the parent item's field
+				parent := &ctx.AllItems[target.PropertyOf]
+				switch target.PropertyKey {
+				case "name":
+					if len(parent.Fields) > 0 {
+						parent.Fields[0] = newVal
+					}
+				case "description":
+					for len(parent.Fields) < 2 {
+						parent.Fields = append(parent.Fields, "")
+					}
+					parent.Fields[1] = newVal
+				case "url":
+					parent.Action = &ItemAction{Type: "url", Target: newVal}
+				case "action":
+					if parent.Action != nil {
+						parent.Action.Target = newVal
+					} else {
+						parent.Action = &ItemAction{Type: "command", Target: newVal}
+					}
+				}
+				// Update the property item's display value
+				for len(target.Fields) < 2 {
+					target.Fields = append(target.Fields, "")
+				}
+				target.Fields[1] = newVal
+				s.Dirty = true
+			} else if newVal != "" {
+				// Regular item rename
+				target.Fields[0] = newVal
+				s.Dirty = true
+			}
+		}
+		s.EditMode = ""
+		s.EditBuffer = nil
+		s.ClearTitle()
+		return ""
+	case tcell.KeyEscape:
+		// Cancel edit — restore original value
+		ctx := s.TopCtx()
+		if s.EditTargetIdx >= 0 && s.EditTargetIdx < len(ctx.AllItems) {
+			target := &ctx.AllItems[s.EditTargetIdx]
+			if target.IsProperty {
+				// Restore property display value
+				for len(target.Fields) < 2 {
+					target.Fields = append(target.Fields, "")
+				}
+				target.Fields[1] = s.EditOrigName
+			} else if s.EditOrigName != "" {
+				target.Fields[0] = s.EditOrigName
+			}
+		}
+		s.EditMode = ""
+		s.EditBuffer = nil
+		s.ClearTitle()
+		return ""
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if len(s.EditBuffer) > 0 {
+			s.EditBuffer = s.EditBuffer[:len(s.EditBuffer)-1]
+		}
+		return ""
+	case tcell.KeyRune:
+		s.EditBuffer = append(s.EditBuffer, ch)
+		return ""
+	}
+	return ""
+}
+
 // HandleUnifiedKey handles all key events in unified tree+search mode.
 // The tree is the single navigation surface. Typing filters and auto-expands
 // the tree to reveal matches. Up/Down always move the tree cursor.
 func HandleUnifiedKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
 	ctx := s.TopCtx()
+
+	// Rename mode — all input goes to EditBuffer
+	if s.EditMode == "rename" {
+		return handleRenameKey(s, key, ch)
+	}
 
 	// Shift+HJKL -> vim-style navigation (capitals bypass search input)
 	if key == tcell.KeyRune {
@@ -406,7 +491,7 @@ func HandleTreeKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []in
 				curScope := ctx.Scope[len(ctx.Scope)-1]
 				if curScope.ParentIdx == row.ItemIdx {
 					// Already scoped into this folder — trigger folder-link or no-op
-					if row.Item.URL != "" {
+					if row.Item.Action != nil && row.Item.Action.Type == "url" {
 						return "select:" + FormatOutput(row.Item, cfg), false
 					}
 					return "", false
@@ -579,7 +664,7 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 				curScope := ctx.Scope[len(ctx.Scope)-1]
 				if curScope.ParentIdx == row.ItemIdx {
 					// Already scoped into this folder — trigger folder-link or no-op
-					if row.Item.URL != "" {
+					if row.Item.Action != nil && row.Item.Action.Type == "url" {
 						return "select:" + FormatOutput(row.Item, cfg)
 					}
 					return ""
@@ -597,7 +682,7 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 				if idx >= 0 {
 					curScope := ctx.Scope[len(ctx.Scope)-1]
 					if curScope.ParentIdx == idx {
-						if selected.URL != "" {
+						if selected.Action != nil && selected.Action.Type == "url" {
 							return "select:" + FormatOutput(selected, cfg)
 						}
 						return ""

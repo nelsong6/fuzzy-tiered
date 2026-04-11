@@ -6,7 +6,7 @@ fzt (fuzzy tiered) is a pure scoring and state engine: depth-aware tiered scorin
 
 ### Package structure
 
-- **`core/`** -- Public library. Data types (`Item`, `TieredScore`, `StyledRune`), fuzzy scoring (`FuzzyMatch`, `ScoreItem`), column parsing (`ParseLines`, `ComputeWidths`, `FormatRow`), YAML loading (`LoadYAML`, `LoadYAMLFromString`), ANSI parsing (`ParseANSI`, `StripANSI`), tree state management (`State`, `TreeContext`, `PushScope`, `PopScope`, `FilterItems`, `TreeVisibleItems`, `UpdateQueryExpansion`, `SyncTreeCursorToTopMatch`, `BuildScopePath`, `ExpandToPath`, `SetTitle`, `ClearTitle`), key handlers (`HandleUnifiedKey`, `HandleKeyEvent`, `HandleTreeKey`, `HandleSearchKey`, `ClickUnifiedRow`, `syncQueryToCursor`), the `TreeProvider` interface for pluggable data sources, `DirProvider` for filesystem trees, `ListDriveRoots` (Windows), and `Config`.
+- **`core/`** -- Public library. Data types (`Item`, `ItemAction`, `TieredScore`, `StyledRune`), fuzzy scoring (`FuzzyMatch`, `ScoreItem`), column parsing (`ParseLines`, `ComputeWidths`, `FormatRow`), YAML loading (`LoadYAML`, `LoadYAMLFromString`), ANSI parsing (`ParseANSI`, `StripANSI`), tree state management (`State`, `TreeContext`, `PushScope`, `PopScope`, `FilterItems`, `TreeVisibleItems`, `UpdateQueryExpansion`, `SyncTreeCursorToTopMatch`, `BuildScopePath`, `ExpandToPath`, `SetTitle`, `ClearTitle`), tree editing (`AddItemAfter`, `AddChildTo`, `DeleteItem`, `CanDelete`, `SerializeTree`), key handlers (`HandleUnifiedKey`, `HandleKeyEvent`, `HandleTreeKey`, `HandleSearchKey`, `ClickUnifiedRow`, `syncQueryToCursor`, `handleRenameKey`), the `TreeProvider` interface for pluggable data sources, `DirProvider` for filesystem trees, `ListDriveRoots` (Windows), and `Config`.
 - **`render/`** -- Headless rendering infrastructure. `Canvas` interface, `MemScreen` (in-memory grid with snapshot/styled-snapshot output), `Session`/`NewTreeSession` (headless wrapper for WASM/testing), ANSI serialization (`ToANSI`), structured data API (`GetVisibleRows`, `GetPromptState`, `GetUIState`), `Version` variable.
 - **`cmd/fzt/`** -- Minimal scoring CLI: `echo lines | fzt "query"` -> ranked output. No TUI, no interaction.
 - **`cmd/ansicheck/`**, **`cmd/debuginput/`**, **`cmd/icontest/`** -- Dev utilities.
@@ -107,3 +107,46 @@ All in `core/input.go`:
 
 - `github.com/gdamore/tcell/v2` -- Used for `tcell.Style`, `tcell.Key`, and color types (core key handling and ANSI parsing). Not used for terminal I/O.
 - `gopkg.in/yaml.v3` -- YAML tree loading.
+
+## Change Log
+
+### 2026-04-09
+
+**core/input.go**
+- Enter-on-folder fix: Enter on a folder the user is already scoped into is now a no-op (or triggers the folder's link URL if it has one). Prevents repeated `PushScope` stacking scope levels. Guard added in both `HandleTreeKey` and `HandleSearchKey` Enter handlers.
+- `syncQueryToCursor`: New function. When navigating Up/Down in search mode, the search query updates to match the highlighted item's name and stale `Filtered` results are cleared. Makes the search bar follow the cursor in nav mode.
+
+**core/tree.go**
+- `TitleOverride` + `TitleStyle` fields on `State`: `TitleOverride` replaces the default console title when set. `TitleStyle` controls color (0=default cyan, 1=green success, 2=red error). Added `SetTitle`/`ClearTitle` methods that evict all ambient displays (`SyncTimerShown` etc.).
+- `SyncIcon`, `SyncNextCheck`, `SyncTimerShown` fields on `State`: Infrastructure for background sync check. `SyncIcon` shows in top-right corner when sync is available. `SyncNextCheck` tracks next check timestamp. `SyncTimerShown` enables live countdown display.
+- `JWTSecret`, `ConfigDir` fields on `State`: JWT secret sourced from OS credential store. `ConfigDir` for sync state files.
+- `RecalcNameColWidth` removed: Column width is no longer recalculated globally after command injection. The description column now flows naturally with visible content.
+
+**core/config.go**
+- `Config.ConfigDir` added: Plumbed from automate `main.go` through to `State` for sync operations.
+- `Config.InitialMenuVersion` added: Persisted menu version for conflict detection on save.
+
+### 2026-04-10
+
+**core/model.go**
+- `ItemAction` struct: `{Type, Target}` replaces the old `Item.URL` string and `Item.Action` string with a single structured pointer (`*ItemAction`). Type is "url", "command", or "function"; Target is the value. nil = informational or folder.
+- `IsProperty`, `PropertyOf`, `PropertyKey` fields on `Item`: Support temporary property items for inspect mode. `PropertyKey` values: "name", "description", "url", "action".
+
+**core/tree.go**
+- `EditMode`, `EditBuffer`, `EditTargetIdx`, `EditOrigName` fields on `State`: Edit mode infrastructure for rename/property editing.
+- `Dirty`, `MenuVersion` fields on `State`: Track unsaved changes and current menu version for conflict detection.
+- `InspectTargetIdx`, `InspectItemIdxs` fields on `State`: Inspect mode state — which item is being inspected and the indices of its temporary property items.
+- `AddItemAfter`, `AddChildTo`: Insert items into the flat tree, updating parent Children arrays.
+- `DeleteItem`: Soft-delete (hide) items and mark tree dirty.
+- `CanDelete`: Prevents deleting items in the active scope chain.
+- `SerializeTree`: Converts AllItems back to nested `[]interface{}` for API persistence. Decomposes `*ItemAction` into separate "url"/"action" keys for backwards-compatible JSON.
+
+**core/input.go**
+- `handleRenameKey`: New key handler for rename/property edit mode. Processes typing, backspace, Enter (confirm), Escape (cancel). Property edits update the parent item's fields or `*ItemAction`.
+- Folder-URL checks updated: `item.URL != ""` → `item.Action != nil && item.Action.Type == "url"`.
+
+**core/yaml.go**
+- `entryToAction`: Converts YAML `url`/`action` strings into `*ItemAction`. URL takes precedence (type "url"). Keeps YAML format backwards-compatible.
+
+**render/session.go**
+- `SelectedURL` updated: Reads from `Action.Target` when `Action.Type == "url"` instead of the removed `Item.URL` field.

@@ -129,12 +129,18 @@ func (sess *Session) SelectedURL() string {
 		// Unified mode: tree cursor is the only selection
 		visible := core.TreeVisibleItems(s)
 		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
-			return visible[ctx.TreeCursor].Item.URL
+			item := visible[ctx.TreeCursor].Item
+			if item.Action != nil && item.Action.Type == "url" {
+				return item.Action.Target
+			}
 		}
 		return ""
 	}
 	if ctx.Index >= 0 && ctx.Index < len(ctx.Filtered) {
-		return ctx.Filtered[ctx.Index].URL
+		item := ctx.Filtered[ctx.Index]
+		if item.Action != nil && item.Action.Type == "url" {
+			return item.Action.Target
+		}
 	}
 	return ""
 }
