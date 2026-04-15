@@ -61,6 +61,7 @@ Items with the same name in different folders are uniquely searchable. Ancestor 
 - `DepthPenalty` is subtracted from Name tier score as `relativeDepth * DepthPenalty`. Relative depth is measured from current scope, not absolute. All callers use 5.
 - `FrontendName`/`FrontendVersion`/`FrontendCommands` are set by the ecosystem (fzt-terminal ApplyConfig), not the engine. They drive the two-level `:` palette via InjectCommandFolder.
 - `InitialDisplay` maps to `State.IdentityLabel` -- shown via "whoami > on" in the command palette.
+- `FoldersOnly` changes Enter key behavior: Enter on an already-scoped folder returns `"select:"` instead of no-op. Used by picker's folder-pick mode.
 
 ### Per-character scoring (FuzzyMatch)
 
@@ -85,8 +86,8 @@ All in `core/input.go`:
 
 - `HandleUnifiedKey` -- Entry point for unified tree+search mode. Dispatches Shift+HJKL vim navigation, handles mode switching (typing activates search, arrows activate nav), delegates to `HandleTreeKey` or `HandleSearchKey`.
 - `HandleKeyEvent` -- Flat (non-tree) mode key handling with mid-query cursor, scope via Enter/Right on folders.
-- `HandleTreeKey` -- Pure tree navigation when no query is active. Up/Down move cursor, Enter pushes scope on folders (no-op if already scoped into that folder), Left collapses/moves to parent.
-- `HandleSearchKey` -- Search-active mode. Typing edits query and auto-positions cursor on top match. Tab autocompletes. Space on folder pushes scope. Enter on a folder already scoped into is a no-op.
+- `HandleTreeKey` -- Pure tree navigation when no query is active. Up/Down move cursor, Enter pushes scope on folders (selects the folder if `FoldersOnly` and already scoped, otherwise no-op), Left collapses/moves to parent.
+- `HandleSearchKey` -- Search-active mode. Typing edits query and auto-positions cursor on top match. Tab autocompletes. Space on folder pushes scope. Enter on a folder already scoped into selects it if `FoldersOnly`, otherwise no-op.
 - `syncQueryToCursor` -- Called during Up/Down navigation in search mode. Updates the search query to match the highlighted item's name and clears stale Filtered results so the search bar follows the cursor.
 
 ## ANSI Parsing

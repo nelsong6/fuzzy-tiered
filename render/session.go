@@ -34,6 +34,11 @@ type SessionFrame struct {
 	CursorY int
 }
 
+// State returns the underlying core.State for direct manipulation (e.g. command injection).
+func (sess *Session) State() *core.State {
+	return sess.state
+}
+
 // NewSession creates a headless TUI session with the given items, config, and dimensions.
 // drawFlat is the rendering callback for flat (non-tree) mode.
 func NewSession(items []core.Item, cfg core.Config, w, h int, drawFlat DrawFunc) *Session {
@@ -52,6 +57,9 @@ func NewSession(items []core.Item, cfg core.Config, w, h int, drawFlat DrawFunc)
 // drawTree is the rendering callback for tree mode; drawFlat is used for flat mode fallback.
 func NewTreeSession(items []core.Item, cfg core.Config, w, h int, drawTree DrawTreeFunc, drawFlat DrawFunc) *Session {
 	s, searchCols := core.NewState(items, cfg)
+	if cfg.Provider != nil {
+		s.Provider = cfg.Provider
+	}
 	ctx := s.TopCtx()
 	ctx.Index = -1
 	ctx.TreeExpanded = make(map[int]bool)
@@ -114,6 +122,17 @@ func (sess *Session) ClickRow(row int) (SessionFrame, string) {
 	action := core.ClickUnifiedRow(sess.state, row, sess.cfg, h)
 	frame := sess.Render()
 	return frame, action
+}
+
+// SelectedItemPath returns the full filesystem path of the currently selected tree item.
+func (sess *Session) SelectedItemPath() string {
+	ctx := sess.state.TopCtx()
+	visible := core.TreeVisibleItems(sess.state)
+	if ctx.TreeCursor < 0 || ctx.TreeCursor >= len(visible) {
+		return ""
+	}
+	row := visible[ctx.TreeCursor]
+	return core.ItemFullPath(ctx, row.ItemIdx)
 }
 
 // SetLabel sets the border label displayed on the top-left of the border.

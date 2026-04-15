@@ -450,9 +450,9 @@ func ItemFullPath(ctx *TreeContext, itemIdx int) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	// Reconstruct path: first part is drive (e.g. "C:"), rest are folders
-	if len(parts) == 1 {
-		return parts[0] + string(filepath.Separator)
+	// Ensure drive letter has trailing separator (filepath.Join treats "C:" as relative)
+	if len(parts[0]) == 2 && parts[0][1] == ':' {
+		parts[0] += string(filepath.Separator)
 	}
 	return filepath.Join(parts...)
 }

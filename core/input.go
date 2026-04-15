@@ -490,7 +490,10 @@ func HandleTreeKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []in
 			if row.Item.HasChildren {
 				curScope := ctx.Scope[len(ctx.Scope)-1]
 				if curScope.ParentIdx == row.ItemIdx {
-					// Already scoped into this folder — trigger folder-link or no-op
+					// Already scoped into this folder — select it (folder-only) or trigger folder-link or no-op
+					if cfg.FoldersOnly {
+						return "select:" + FormatOutput(row.Item, cfg), false
+					}
 					if row.Item.Action != nil && row.Item.Action.Type == "url" {
 						return "select:" + FormatOutput(row.Item, cfg), false
 					}
@@ -663,7 +666,10 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 			if row.Item.HasChildren {
 				curScope := ctx.Scope[len(ctx.Scope)-1]
 				if curScope.ParentIdx == row.ItemIdx {
-					// Already scoped into this folder — trigger folder-link or no-op
+					// Already scoped into this folder — select it (folder-only) or trigger folder-link or no-op
+					if cfg.FoldersOnly {
+						return "select:" + FormatOutput(row.Item, cfg)
+					}
 					if row.Item.Action != nil && row.Item.Action.Type == "url" {
 						return "select:" + FormatOutput(row.Item, cfg)
 					}
@@ -682,6 +688,9 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 				if idx >= 0 {
 					curScope := ctx.Scope[len(ctx.Scope)-1]
 					if curScope.ParentIdx == idx {
+						if cfg.FoldersOnly {
+							return "select:" + FormatOutput(selected, cfg)
+						}
 						if selected.Action != nil && selected.Action.Type == "url" {
 							return "select:" + FormatOutput(selected, cfg)
 						}

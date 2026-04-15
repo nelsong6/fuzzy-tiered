@@ -34,6 +34,7 @@ type Config struct {
 	FrontendVersion  string        // displayed via "version > on" in the : palette
 	FrontendCommands []CommandItem // registered commands for the first level of the : palette
 	InitialDisplay   string        // mapped to State.IdentityLabel — shown via "whoami > on" in : palette
+	FoldersOnly bool // folders are the selectable items — Enter on an already-scoped folder returns "select:" instead of no-op
 	// Provider for lazy tree loading (e.g. DirProvider for file picker mode).
 	// PushScope calls Provider.LoadChildren when entering a folder with no loaded children.
 	Provider   TreeProvider
