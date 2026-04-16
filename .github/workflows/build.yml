@@ -108,11 +108,13 @@ jobs:
         with:
           app-id: ${{ steps.app-creds.outputs.app_id }}
           private-key: ${{ steps.app-creds.outputs.private_key }}
-          repositories: fzt-terminal
+          repositories: fzt-frontend,fzt-terminal
 
-      - name: Notify fzt-terminal
+      - name: Notify direct Go-module consumers
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh api repos/nelsong6/fzt-terminal/dispatches \
-            -f event_type=fzt-engine-updated
+          for repo in nelsong6/fzt-frontend nelsong6/fzt-terminal; do
+            gh api repos/$repo/dispatches \
+              -f event_type=fzt-updated
+          done
