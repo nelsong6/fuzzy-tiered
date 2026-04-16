@@ -13,7 +13,7 @@ fzt (fuzzy tiered) is a pure scoring and state engine: depth-aware tiered scorin
 
 ### Ecosystem
 
-Interactive tools import fzt alongside `nelsong6/fzt-terminal` which provides terminal/browser renderers, style (Catppuccin, DOS font, CRT), and frontend behavior (command palette, identity, actions). See the architecture diagrams at `docs.romaine.life/fzt/final`.
+Interactive tools import fzt alongside `nelsong6/fzt-terminal` which provides terminal/browser renderers, style (Catppuccin, DOS font, CRT), and frontend behavior (command palette, identity, actions). See the architecture diagrams at `diagrams.romaine.life/fzt/final`.
 
 Cross-repo references:
 
