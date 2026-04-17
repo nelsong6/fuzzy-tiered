@@ -151,3 +151,4 @@ All in `core/input.go`:
 
 **render/session.go**
 - `SelectedURL` updated: Reads from `Action.Target` when `Action.Type == "url"` instead of the removed `Item.URL` field.
+
