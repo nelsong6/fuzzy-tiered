@@ -103,12 +103,30 @@ func handleRenameKey(s *State, key tcell.Key, ch rune) string {
 // HandleUnifiedKey handles all key events in unified tree+search mode.
 // The tree is the single navigation surface. Typing filters and auto-expands
 // the tree to reveal matches. Up/Down always move the tree cursor.
-func HandleUnifiedKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
+//
+// shift reports whether Shift was held with the key event. Currently only
+// Shift+Enter is observed here (universal confirm-select). Event sources
+// that can't report modifier state (inline raw-byte parser, anything
+// reading from a pipe) should pass false.
+func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, searchCols []int) string {
 	ctx := s.TopCtx()
 
 	// Rename mode — all input goes to EditBuffer
 	if s.EditMode == "rename" {
 		return handleRenameKey(s, key, ch)
+	}
+
+	// Shift+Enter — universal confirm-select: commit whatever the cursor is on,
+	// skipping the scope-push gesture that plain Enter does on folders.
+	if shift && key == tcell.KeyEnter {
+		visible := TreeVisibleItems(s)
+		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) {
+			return "select:" + FormatOutput(visible[ctx.TreeCursor].Item, cfg)
+		}
+		if len(ctx.Filtered) > 0 {
+			return "select:" + FormatOutput(ctx.Filtered[0], cfg)
+		}
+		return ""
 	}
 
 	// Shift+HJKL -> vim-style navigation (capitals bypass search input)
@@ -214,8 +232,18 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols [
 
 // HandleKeyEvent processes a single key event against the TUI state (flat mode).
 // Returns "" for normal continuation, "cancel" to quit, or "select:<output>" for leaf selection.
-func HandleKeyEvent(s *State, key tcell.Key, ch rune, cfg Config, searchCols []int) string {
+//
+// shift reports whether Shift was held. Only Shift+Enter is observed — it
+// commits the highlighted filtered item without scope-pushing folders.
+func HandleKeyEvent(s *State, key tcell.Key, ch rune, shift bool, cfg Config, searchCols []int) string {
 	ctx := s.TopCtx()
+	// Shift+Enter — universal confirm-select, parallel to the tree-mode handler.
+	if shift && key == tcell.KeyEnter {
+		if ctx.Index >= 0 && ctx.Index < len(ctx.Filtered) {
+			return "select:" + FormatOutput(ctx.Filtered[ctx.Index], cfg)
+		}
+		return ""
+	}
 	switch key {
 	case tcell.KeyCtrlC:
 		s.Cancelled = true

@@ -100,13 +100,17 @@ func (sess *Session) Resize(w, h int) SessionFrame {
 }
 
 // HandleKey processes a key event and returns the new frame.
-func (sess *Session) HandleKey(key tcell.Key, ch rune) (SessionFrame, string) {
+//
+// shift reports whether Shift was held. Used by core to recognize
+// Shift+Enter as a universal confirm-select. Callers that can't
+// observe modifier state should pass false.
+func (sess *Session) HandleKey(key tcell.Key, ch rune, shift bool) (SessionFrame, string) {
 	var action string
 	ctx := sess.state.TopCtx()
 	if ctx.TreeExpanded != nil {
-		action = core.HandleUnifiedKey(sess.state, key, ch, sess.cfg, sess.searchCols)
+		action = core.HandleUnifiedKey(sess.state, key, ch, shift, sess.cfg, sess.searchCols)
 	} else {
-		action = core.HandleKeyEvent(sess.state, key, ch, sess.cfg, sess.searchCols)
+		action = core.HandleKeyEvent(sess.state, key, ch, shift, sess.cfg, sess.searchCols)
 	}
 	frame := sess.Render()
 	return frame, action
