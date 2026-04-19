@@ -6,6 +6,23 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+// normalModeNavBinding maps normal-mode letter keys (hjkl) to their arrow
+// equivalents and a short glyph to flash in the title bar as feedback that
+// the nav keystroke was received. Returns ok=false for unbound characters.
+func normalModeNavBinding(ch rune) (key tcell.Key, arrow string, ok bool) {
+	switch ch {
+	case 'h':
+		return tcell.KeyLeft, "\u2190", true
+	case 'j':
+		return tcell.KeyDown, "\u2193", true
+	case 'k':
+		return tcell.KeyUp, "\u2191", true
+	case 'l':
+		return tcell.KeyRight, "\u2192", true
+	}
+	return 0, "", false
+}
+
 // syncQueryToCursor updates the search query to match the name of the item
 // under the tree cursor. Called when navigating away from a search result
 // so the search bar follows the highlighted row.
@@ -173,6 +190,7 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 			ctx.TreeCursor = -1
 			ctx.QueryExpanded = make(map[int]bool)
 		}
+		s.SetTitle("\u232B", 1)
 		return ""
 	}
 
@@ -194,6 +212,7 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 				if ctx.TreeCursor < 0 && len(visible) > 0 {
 					ctx.TreeCursor = 0
 				}
+				s.SetTitle("\u2192", 1)
 				return ""
 			}
 			// Space on a folder -> push scope (same as Enter)
@@ -211,18 +230,9 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 			// `/` and Backspace are the designated search-mode re-entries (handled
 			// elsewhere). No auto-switchback on an unbound keypress.
 			if ctx.NavMode {
-				switch ch {
-				case 'h':
-					action, _ := HandleTreeKey(s, tcell.KeyLeft, 0, cfg, searchCols)
-					return action
-				case 'j':
-					action, _ := HandleTreeKey(s, tcell.KeyDown, 0, cfg, searchCols)
-					return action
-				case 'k':
-					action, _ := HandleTreeKey(s, tcell.KeyUp, 0, cfg, searchCols)
-					return action
-				case 'l':
-					action, _ := HandleTreeKey(s, tcell.KeyRight, 0, cfg, searchCols)
+				if navKey, arrow, ok := normalModeNavBinding(ch); ok {
+					s.SetTitle(arrow, 1)
+					action, _ := HandleTreeKey(s, navKey, 0, cfg, searchCols)
 					return action
 				}
 				return ""
@@ -865,19 +875,15 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 		// with the last char chopped (the existing KeyBackspace case handles that
 		// since syncQueryToCursor keeps Query synced to the cursor's item name).
 		if ctx.NavMode {
-			switch ch {
-			case '/':
+			if ch == '/' {
 				// Return to search mode, query preserved
 				ctx.NavMode = false
+				s.SetTitle("\U0001F50D", 1)
 				return ""
-			case 'h':
-				return HandleSearchKey(s, tcell.KeyLeft, 0, cfg, searchCols)
-			case 'j':
-				return HandleSearchKey(s, tcell.KeyDown, 0, cfg, searchCols)
-			case 'k':
-				return HandleSearchKey(s, tcell.KeyUp, 0, cfg, searchCols)
-			case 'l':
-				return HandleSearchKey(s, tcell.KeyRight, 0, cfg, searchCols)
+			}
+			if navKey, arrow, ok := normalModeNavBinding(ch); ok {
+				s.SetTitle(arrow, 1)
+				return HandleSearchKey(s, navKey, 0, cfg, searchCols)
 			}
 			// Unbound key in normal mode: silent (future: dead-key hint)
 			return ""
@@ -892,6 +898,7 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 				ctx.TreeCursor = 0
 				syncQueryToCursor(ctx, visible)
 			}
+			s.SetTitle("\u2192", 1)
 			return ""
 		}
 
