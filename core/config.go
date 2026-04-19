@@ -21,7 +21,6 @@ type Config struct {
 	Tiered       bool   // enable hierarchical scoring: depth penalty, ancestor matching, scope-based search pools
 	DepthPenalty int    // per-level penalty subtracted from Name tier score (relative to current scope). All callers use 5.
 	SearchCols   []int  // 1-based: restricts which fields qualify for the Name tier. Overrides Nth for scoring.
-	Height       int    // percentage of terminal height (0 = full screen, 1-99 = inline mode)
 	ShowScores   bool   // annotate filter output with raw scores (debugging)
 	ANSI         bool   // preserve ANSI escape codes from input in StyledFields
 	Title        string // border title text
