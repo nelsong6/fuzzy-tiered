@@ -129,25 +129,6 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 		return ""
 	}
 
-	// Shift+HJKL -> vim-style navigation (capitals bypass search input)
-	if key == tcell.KeyRune {
-		var navKey tcell.Key
-		switch ch {
-		case 'H':
-			navKey = tcell.KeyLeft
-		case 'J':
-			navKey = tcell.KeyDown
-		case 'K':
-			navKey = tcell.KeyUp
-		case 'L':
-			navKey = tcell.KeyRight
-		}
-		if navKey != 0 {
-			action, _ := HandleTreeKey(s, navKey, 0, cfg, searchCols)
-			return action
-		}
-	}
-
 	// Nav mode + Ctrl+U: clean slate -- exit nav, clear query, deselect
 	if ctx.NavMode && key == tcell.KeyCtrlU {
 		ctx.NavMode = false
@@ -164,7 +145,10 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 		return ""
 	}
 
-	// Nav mode + Backspace: edit the displayed item name (remove last char)
+	// Nav mode + Backspace: chop last char of the displayed item name (which
+	// syncQueryToCursor has kept in sync with Query) and return to search mode.
+	// Paired with `/` which also returns to search but preserves the query
+	// untouched. Both are the designated exits from normal mode.
 	if ctx.NavMode && (key == tcell.KeyBackspace || key == tcell.KeyBackspace2) {
 		visible := TreeVisibleItems(s)
 		if ctx.TreeCursor >= 0 && ctx.TreeCursor < len(visible) && len(visible[ctx.TreeCursor].Item.Fields) > 0 {
@@ -201,6 +185,17 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 				ctx.NavMode = false
 				return ""
 			}
+			if ch == '`' {
+				// Explicit entry into normal mode (cursor-on-tree). Mirrors the
+				// console-summon gesture from Quake/Source games and VS Code's
+				// Ctrl+`; complements implicit arrow-key entry.
+				ctx.NavMode = true
+				visible := TreeVisibleItems(s)
+				if ctx.TreeCursor < 0 && len(visible) > 0 {
+					ctx.TreeCursor = 0
+				}
+				return ""
+			}
 			// Space on a folder -> push scope (same as Enter)
 			if ch == ' ' {
 				visible := TreeVisibleItems(s)
@@ -212,7 +207,27 @@ func HandleUnifiedKey(s *State, key tcell.Key, ch rune, shift bool, cfg Config, 
 					}
 				}
 			}
-			// Printable character -> activate search
+			// Normal mode (arrow-nav engaged): letter keys are nav bindings or no-op.
+			// `/` and Backspace are the designated search-mode re-entries (handled
+			// elsewhere). No auto-switchback on an unbound keypress.
+			if ctx.NavMode {
+				switch ch {
+				case 'h':
+					action, _ := HandleTreeKey(s, tcell.KeyLeft, 0, cfg, searchCols)
+					return action
+				case 'j':
+					action, _ := HandleTreeKey(s, tcell.KeyDown, 0, cfg, searchCols)
+					return action
+				case 'k':
+					action, _ := HandleTreeKey(s, tcell.KeyUp, 0, cfg, searchCols)
+					return action
+				case 'l':
+					action, _ := HandleTreeKey(s, tcell.KeyRight, 0, cfg, searchCols)
+					return action
+				}
+				return ""
+			}
+			// Not in nav mode (boot or cleared-to-empty-root): printable activates search
 			ctx.SearchActive = true
 			ctx.NavMode = false
 			ctx.Query = []rune{ch}
@@ -845,6 +860,41 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 		return ""
 
 	case tcell.KeyRune:
+		// Normal mode (arrow-nav engaged): letter keys are nav bindings or no-op.
+		// `/` returns to search with query preserved; Backspace returns to search
+		// with the last char chopped (the existing KeyBackspace case handles that
+		// since syncQueryToCursor keeps Query synced to the cursor's item name).
+		if ctx.NavMode {
+			switch ch {
+			case '/':
+				// Return to search mode, query preserved
+				ctx.NavMode = false
+				return ""
+			case 'h':
+				return HandleSearchKey(s, tcell.KeyLeft, 0, cfg, searchCols)
+			case 'j':
+				return HandleSearchKey(s, tcell.KeyDown, 0, cfg, searchCols)
+			case 'k':
+				return HandleSearchKey(s, tcell.KeyUp, 0, cfg, searchCols)
+			case 'l':
+				return HandleSearchKey(s, tcell.KeyRight, 0, cfg, searchCols)
+			}
+			// Unbound key in normal mode: silent (future: dead-key hint)
+			return ""
+		}
+
+		if ch == '`' {
+			// Explicit entry into normal mode. Mirrors the Quake/Source console
+			// gesture and VS Code's Ctrl+`; complements implicit arrow-key entry.
+			ctx.NavMode = true
+			visible := TreeVisibleItems(s)
+			if ctx.TreeCursor < 0 && len(visible) > 0 {
+				ctx.TreeCursor = 0
+				syncQueryToCursor(ctx, visible)
+			}
+			return ""
+		}
+
 		ctx.NavMode = false
 
 		// Space on a folder -> enter it
