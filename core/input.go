@@ -492,10 +492,7 @@ func HandleTreeKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []in
 				if curScope.ParentIdx == row.ItemIdx {
 					// Already scoped into this folder — select it (folder-only) or trigger folder-link or no-op
 					if cfg.FoldersOnly {
-						// FoldersOnly implies a filesystem picker — return the
-						// walked path, not Fields[0] (which is just the leaf name
-						// for directories coming out of core.DirProvider).
-						return "select:" + ItemFullPath(ctx, row.ItemIdx), false
+						return "select:" + FormatOutput(row.Item, cfg), false
 					}
 					if row.Item.Action != nil && row.Item.Action.Type == "url" {
 						return "select:" + FormatOutput(row.Item, cfg), false
@@ -671,7 +668,7 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 				if curScope.ParentIdx == row.ItemIdx {
 					// Already scoped into this folder — select it (folder-only) or trigger folder-link or no-op
 					if cfg.FoldersOnly {
-						return "select:" + ItemFullPath(ctx, row.ItemIdx)
+						return "select:" + FormatOutput(row.Item, cfg)
 					}
 					if row.Item.Action != nil && row.Item.Action.Type == "url" {
 						return "select:" + FormatOutput(row.Item, cfg)
@@ -692,7 +689,7 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 					curScope := ctx.Scope[len(ctx.Scope)-1]
 					if curScope.ParentIdx == idx {
 						if cfg.FoldersOnly {
-							return "select:" + ItemFullPath(ctx, idx)
+							return "select:" + FormatOutput(selected, cfg)
 						}
 						if selected.Action != nil && selected.Action.Type == "url" {
 							return "select:" + FormatOutput(selected, cfg)
