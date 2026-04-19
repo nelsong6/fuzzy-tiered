@@ -36,4 +36,5 @@ type Item struct {
 	IsProperty    bool           // true for temporary property items created by inspect mode. Not serialized.
 	PropertyOf    int            // index of the item this property belongs to (-1 = not a property).
 	PropertyKey   string         // which property this item represents: "name", "description", "url", "action".
+	Injected      bool           // set by client-side palette injection (see fzt-frontend.InjectCommandFolder). SerializeTree skips these so the `:` palette never gets PUT back to the cloud menu.
 }

@@ -644,13 +644,14 @@ func CanDelete(s *State, itemIdx int) bool {
 }
 
 // SerializeTree converts AllItems to nested JSON-compatible structures.
-// Skips property items (ephemeral) and soft-deleted items.
-// Includes hidden items (command palette) and action/hidden fields.
+// Skips property items (ephemeral), soft-deleted items, and client-injected
+// items (e.g. the `:` command palette) so those never get round-tripped back
+// to the cloud menu on save.
 func SerializeTree(ctx *TreeContext) []interface{} {
 	var serializeItem func(idx int) map[string]interface{}
 	serializeItem = func(idx int) map[string]interface{} {
 		item := ctx.AllItems[idx]
-		if item.IsProperty {
+		if item.IsProperty || item.Injected {
 			return nil
 		}
 
@@ -689,7 +690,7 @@ func SerializeTree(ctx *TreeContext) []interface{} {
 
 	var result []interface{}
 	for i, item := range ctx.AllItems {
-		if item.Depth == 0 && !item.IsProperty {
+		if item.Depth == 0 && !item.IsProperty && !item.Injected {
 			if m := serializeItem(i); m != nil {
 				result = append(result, m)
 			}
