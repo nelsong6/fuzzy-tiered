@@ -33,6 +33,13 @@ type Config struct {
 	FrontendVersion  string        // displayed via "version > on" in the : palette
 	FrontendCommands []CommandItem // registered commands for the first level of the : palette
 	InitialDisplay   string        // mapped to State.IdentityLabel — shown via "whoami > on" in : palette
+	// HidePalette suppresses the visible `:` root row. The palette and its
+	// commands still exist in the tree and remain reachable by typing `:`
+	// (Hidden items participate in search and give a "takeover" view when
+	// entered), but no row shows at root. Set by consumers where the palette
+	// is meaningless to the current user — e.g. unauthenticated homepage
+	// visitors for whom "edit"/"logout" make no sense.
+	HidePalette bool
 	FoldersOnly      bool // folders are the selectable items — Enter on an already-scoped folder returns "select:" instead of no-op
 	EnvTags []string // environment capabilities (e.g. "terminal", "wasm", "browser") — items with DisplayCondition are shown only if their tag is in this set
 	// Provider for lazy tree loading (e.g. DirProvider for file picker mode).

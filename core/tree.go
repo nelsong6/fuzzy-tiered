@@ -83,6 +83,7 @@ type State struct {
 	FrontendCommands []CommandItem  // commands for the first level of the : palette. Set by ApplyConfig from Config.FrontendCommands.
 	FrontendName     string         // frontend identifier (e.g. "automate"). Drives scope title ("automate ctl" vs "fzt ctl").
 	FrontendVersion  string         // frontend version string. Registered at index 0 of VersionRegistry.
+	HidePalette      bool           // suppress the visible `:` root row (commands stay reachable by typing `:`). Set from Config.HidePalette.
 	IdentityLabel    string         // loaded identity (e.g. "nelson"). Emitted as a one-shot status by the :whoami palette leaf.
 	SyncIcon         string         // non-empty = show icon in top-right corner of border (e.g. "⟳" when sync available)
 	SyncNextCheck    int64          // unix timestamp — when the next background sync check fires (0 = disabled)
