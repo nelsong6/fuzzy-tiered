@@ -1,8 +1,9 @@
 name: Build
 
 # Auto-trigger disabled — Claude-driven CI. Run manually via
-# `gh workflow run build.yml -R nelsong6/fzt` when ready to cut a
-# new release and cascade downstream to fzt-frontend + fzt-terminal.
+# `gh workflow run build.yml -R nelsong6/fzt` when ready to cut a new
+# release. Downstream consumers (fzt-frontend, fzt-terminal) are also
+# Claude-driven — bump their own go.mod via each repo's dispatch.yml.
 on:
   workflow_dispatch:
 
@@ -83,40 +84,3 @@ jobs:
             -R ${{ github.repository }} \
             --title "$next" \
             --notes "Engine-only scoring CLI. $(git log --oneline -1)"
-
-      - name: Azure Login via OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.ARM_CLIENT_ID }}
-          tenant-id: ${{ vars.ARM_TENANT_ID }}
-          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
-
-      - name: Get GitHub App credentials from Key Vault
-        id: app-creds
-        run: |
-          APP_ID=$(az keyvault secret show --vault-name ${{ vars.KEY_VAULT_NAME }} --name github-app-id --query value -o tsv)
-          echo "::add-mask::$APP_ID"
-          echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
-          PRIVATE_KEY=$(az keyvault secret show --vault-name ${{ vars.KEY_VAULT_NAME }} --name github-app-private-key --query value -o tsv)
-          echo "::add-mask::$PRIVATE_KEY"
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "private_key<<$EOF" >> $GITHUB_OUTPUT
-          echo "$PRIVATE_KEY" >> $GITHUB_OUTPUT
-          echo "$EOF" >> $GITHUB_OUTPUT
-
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ steps.app-creds.outputs.app_id }}
-          private-key: ${{ steps.app-creds.outputs.private_key }}
-          repositories: fzt-frontend,fzt-terminal
-
-      - name: Notify direct Go-module consumers
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          for repo in nelsong6/fzt-frontend nelsong6/fzt-terminal; do
-            gh api repos/$repo/dispatches \
-              -f event_type=fzt-updated
-          done
