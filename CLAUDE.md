@@ -113,6 +113,11 @@ All in `core/input.go`:
 
 ## Change Log
 
+### 2026-04-20
+
+**core/input.go**
+- `HandleSearchKey` Escape handler: first Escape with a non-empty query and `NavMode=false` now flips `NavMode=true` and preserves the query (the same transition the backtick binding already performed). Second Escape falls through to the existing clear-query cascade. Mirrors Vim's insert→normal gesture so Vim muscle memory carries over to fzt's search. Fixes #12.
+
 ### 2026-04-09
 
 **core/input.go**
