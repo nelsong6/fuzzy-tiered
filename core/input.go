@@ -575,6 +575,20 @@ func HandleSearchKey(s *State, key tcell.Key, ch rune, cfg Config, searchCols []
 	ctx := s.TopCtx()
 	switch key {
 	case tcell.KeyEscape:
+		// Vim-parallel: Escape from the free-typing mode (query active, NavMode
+		// off) exits into normal mode with the query preserved, mirroring
+		// Vim's insert→normal transition. Subsequent Escape presses then unwind
+		// query → scope → context → cancel.
+		if len(ctx.Query) > 0 && !ctx.NavMode {
+			ctx.NavMode = true
+			visible := TreeVisibleItems(s)
+			if ctx.TreeCursor < 0 && len(visible) > 0 {
+				ctx.TreeCursor = 0
+				syncQueryToCursor(ctx, visible)
+			}
+			s.SetTitle("\uF0A9", 4)
+			return ""
+		}
 		if len(ctx.Query) > 0 {
 			// Clear query, collapse auto-expansions
 			ctx.Query = nil
