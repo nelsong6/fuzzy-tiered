@@ -3,7 +3,7 @@ module github.com/nelsong6/fzt
 go 1.26.1
 
 require (
-	github.com/gdamore/tcell/v2 v2.13.8
+	github.com/gdamore/tcell/v2 v2.13.9
 	gopkg.in/yaml.v3 v3.0.1
 )
 
